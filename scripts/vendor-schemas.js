@@ -41,10 +41,17 @@ export function localPathFor(url, root) {
     return path.join(root, host, ...pathname.split('/').filter(Boolean));
 }
 
-async function fetchText(url) {
-    const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-    return response.text();
+async function fetchText(url, attempts = 3) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.text();
+        } catch (error) {
+            if (attempt >= attempts) throw new Error(`${url}: ${error.message}`);
+            await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+    }
 }
 
 async function main() {
