@@ -12,6 +12,38 @@ function tune(socket) {
     socket.setNoDelay(true);
 }
 
+const CONNECTIONS = 'onvif_server_proxy_connections';
+const CONNECTIONS_HELP = 'Open client connections on this forwarder.';
+const CONNECTIONS_TOTAL = 'onvif_server_proxy_connections_total';
+const CONNECTIONS_TOTAL_HELP = 'Client connections accepted by this forwarder.';
+const BYTES = 'onvif_server_proxy_bytes_total';
+const BYTES_HELP = 'Bytes forwarded; direction to_client is camera to NVR.';
+const LAST = 'onvif_server_proxy_last_transfer_timestamp_seconds';
+const LAST_HELP = 'Unix time of the last forwarded chunk per direction. A stale to_client value on an open connection means a frozen stream.';
+
+function describeProxyMetrics(metrics, labels) {
+    // Export zero-valued series from the start, so "no connection yet" and
+    // "metric missing" are distinguishable.
+    metrics.set(CONNECTIONS, CONNECTIONS_HELP, labels, 0);
+    metrics.inc(CONNECTIONS_TOTAL, CONNECTIONS_TOTAL_HELP, labels, 0);
+    for (const direction of ['to_client', 'to_target']) metrics.inc(BYTES, BYTES_HELP, { ...labels, direction }, 0);
+    metrics.describe(LAST, 'gauge', LAST_HELP);
+}
+
+function countConnection(metrics, labels, client, upstream) {
+    metrics.add(CONNECTIONS, CONNECTIONS_HELP, labels, 1);
+    metrics.inc(CONNECTIONS_TOTAL, CONNECTIONS_TOTAL_HELP, labels);
+
+    // Extra 'data' listeners only observe; pipe() keeps doing the forwarding.
+    const count = (direction) => (chunk) => {
+        const directed = { ...labels, direction };
+        metrics.inc(BYTES, BYTES_HELP, directed, chunk.length);
+        metrics.set(LAST, LAST_HELP, directed, Math.floor(Date.now() / 1000));
+    };
+    upstream.on('data', count('to_client'));
+    client.on('data', count('to_target'));
+}
+
 /**
  * A plain TCP forwarder, replacing the unmaintained `node-tcp-proxy` 0.0.x.
  *
@@ -26,11 +58,14 @@ export class TcpProxy {
     #logger;
     #target;
 
-    constructor({ listenHost, listenPort, targetHost, targetPort, logger }) {
+    constructor({ listenHost, listenPort, targetHost, targetPort, logger, metrics = null }) {
         this.#logger = logger;
         this.#target = `${targetHost}:${targetPort}`;
         this.listenHost = listenHost;
         this.listenPort = listenPort;
+
+        const labels = { listen: `${listenHost}:${listenPort}`, target: this.#target };
+        if (metrics) describeProxyMetrics(metrics, labels);
 
         this.#server = net.createServer((client) => {
             const upstream = net.createConnection({ host: targetHost, port: targetPort });
@@ -40,7 +75,10 @@ export class TcpProxy {
             tune(client);
             tune(upstream);
 
+            let tornDown = false;
             const teardown = () => {
+                if (!tornDown && metrics) metrics.add(CONNECTIONS, CONNECTIONS_HELP, labels, -1);
+                tornDown = true;
                 client.destroy();
                 upstream.destroy();
             };
@@ -60,6 +98,8 @@ export class TcpProxy {
 
             client.pipe(upstream);
             upstream.pipe(client);
+
+            if (metrics) countConnection(metrics, labels, client, upstream);
         });
 
         this.#server.on('error', (error) => {
@@ -81,6 +121,11 @@ export class TcpProxy {
                 resolve();
             });
         });
+    }
+
+    /** The bound address, or null before listen(). Useful when listenPort is 0. */
+    address() {
+        return this.#server.address();
     }
 
     async close() {

@@ -133,6 +133,16 @@ export function validateConfig(config) {
 
     config.onvif.forEach((camera, index) => checkCamera(errors, index, camera));
 
+    if (config.metrics !== undefined) {
+        if (!isPlainObject(config.metrics)) {
+            errors.push('metrics: expected a mapping with port (and optionally host)');
+        } else {
+            checkPort(errors, 'metrics.port', config.metrics.port);
+            if (config.metrics.host !== undefined && (typeof config.metrics.host !== 'string' || config.metrics.host.trim() === ''))
+                errors.push('metrics.host: expected an address to listen on, e.g. "0.0.0.0"');
+        }
+    }
+
     // Two virtual cameras on the same host:port would silently fight over the socket.
     const seen = new Map();
     config.onvif.forEach((camera, index) => {

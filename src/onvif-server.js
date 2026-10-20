@@ -85,10 +85,12 @@ class OnvifServer {
     #mediaService;
     #discoveryMessageNo = 0;
     #snapshot;
+    #metrics;
 
-    constructor(config, logger) {
+    constructor(config, logger, { metrics = null } = {}) {
         this.#config = config;
         this.#logger = logger;
+        this.#metrics = metrics;
 
         if (!this.#config.hostname)
             this.#config.hostname = getIpAddressFromMac(this.#config.mac);
@@ -450,11 +452,20 @@ class OnvifServer {
 
         // Handler exceptions and faults are answered with HTTP 500 by node-soap;
         // without this they would never reach the log.
+        const labels = { camera: this.#config.name, service: name };
         service.log = (type, data) => {
             if (type !== 'error') return;
             const message = data?.Fault?.Reason?.Text ?? data?.message ?? String(data);
             this.#logger.error(`${name} request failed: ${message}`);
+            this.#metrics?.inc('onvif_server_soap_errors_total', 'SOAP requests answered with a fault or HTTP 500.', labels);
         };
+
+        if (this.#metrics) {
+            this.#metrics.inc('onvif_server_soap_errors_total', 'SOAP requests answered with a fault or HTTP 500.', labels, 0);
+            service.on('request', (_request, method) => {
+                this.#metrics.inc('onvif_server_soap_requests_total', 'SOAP requests by method.', { ...labels, method });
+            });
+        }
 
         return { service, ready };
     }
@@ -589,8 +600,8 @@ class OnvifServer {
     }
 }
 
-export function createServer(config, logger) {
-    return new OnvifServer(config, logger);
+export function createServer(config, logger, options) {
+    return new OnvifServer(config, logger, options);
 }
 
 export { getIpAddressFromMac, isDstObserved, standardTimezoneOffset, slug };

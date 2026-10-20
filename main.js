@@ -11,6 +11,7 @@ import { createConfig } from './src/config-builder.js';
 import { validateConfig } from './src/config-schema.js';
 import { TcpProxy } from './src/tcp-proxy.js';
 import { planForwards } from './src/forwards.js';
+import { Metrics, startMetricsServer } from './src/metrics.js';
 import { createLogger } from './src/logger.js';
 
 const USAGE = `Virtual Onvif Server
@@ -112,9 +113,12 @@ async function runServers(config, { debug, logger }) {
     const proxies = [];
     const cameras = [];
 
+    const metrics = config.metrics ? new Metrics() : null;
+    metrics?.set('onvif_server_build_info', 'Constant 1, labelled with the running version.', { version: await readVersion() }, 1);
+
     for (const cameraConfig of config.onvif) {
         const cameraLogger = logger.child({ camera: cameraConfig.name });
-        const server = createServer(cameraConfig, cameraLogger);
+        const server = createServer(cameraConfig, cameraLogger, { metrics });
 
         if (!server.getHostname()) {
             cameraLogger.error(`Failed to find IP address for MAC address ${cameraConfig.mac}`);
@@ -148,7 +152,7 @@ async function runServers(config, { debug, logger }) {
     }
 
     for (const { listenHost, listenPort, targetHost, targetPort } of forwards) {
-        const proxy = new TcpProxy({ listenHost, listenPort, targetHost, targetPort, logger });
+        const proxy = new TcpProxy({ listenHost, listenPort, targetHost, targetPort, logger, metrics });
 
         logger.info(`starting tcp proxy ${listenHost}:${listenPort} -> ${targetHost}:${targetPort}`);
 
@@ -163,7 +167,21 @@ async function runServers(config, { debug, logger }) {
         proxies.push(proxy);
     }
 
-    logger.info(`ready — ${servers.length} virtual camera${servers.length === 1 ? '' : 's'}, ${proxies.length} tcp proxies`);
+    if (metrics) {
+        const { host = '0.0.0.0', port } = config.metrics;
+        try {
+            // Closed through the same path as servers and proxies.
+            const metricsServer = await startMetricsServer(metrics, { host, port });
+            servers.push({ close: () => new Promise((resolve) => metricsServer.close(resolve)) });
+            logger.info(`serving metrics on http://${host}:${port}/metrics`);
+        } catch (error) {
+            logger.error(`failed to start metrics endpoint on ${host}:${port}: ${error.message}`, { code: error.code });
+            await shutdown(servers, proxies);
+            return 1;
+        }
+    }
+
+    logger.info(`ready — ${cameras.length} virtual camera${cameras.length === 1 ? '' : 's'}, ${proxies.length} tcp proxies`);
 
     await waitForShutdownSignal(logger);
     await shutdown(servers, proxies);
