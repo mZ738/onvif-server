@@ -12,6 +12,7 @@ import { validateConfig } from './src/config-schema.js';
 import { TcpProxy } from './src/tcp-proxy.js';
 import { planForwards } from './src/forwards.js';
 import { Metrics, startMetricsServer } from './src/metrics.js';
+import { checkConfig } from './src/check.js';
 import { createLogger } from './src/logger.js';
 
 const USAGE = `Virtual Onvif Server
@@ -21,6 +22,8 @@ Usage: node main.js [options] <config>
 Options:
   -v, --version        show the version information
   -cc, --create-config create a new config by probing a real Onvif camera
+  -t, --check          validate the config and show what would be served,
+                       without opening any port (exit code 0 = ok)
   -d, --debug          show onvif requests
   -h, --help           show this help
 `;
@@ -188,6 +191,18 @@ async function runServers(config, { debug, logger }) {
     return 0;
 }
 
+function runCheck(config, configFile) {
+    const { errors, warnings, report } = checkConfig(config);
+
+    process.stdout.write(`${configFile}: ${config.onvif.length} virtual camera${config.onvif.length === 1 ? '' : 's'}\n`);
+    for (const line of report) process.stdout.write(`${line}\n`);
+    for (const warning of warnings) process.stdout.write(`warning: ${warning}\n`);
+    for (const error of errors) process.stdout.write(`error: ${error}\n`);
+
+    process.stdout.write(errors.length === 0 ? 'config ok\n' : `config has ${errors.length} error${errors.length === 1 ? '' : 's'}\n`);
+    return errors.length === 0 ? 0 : 1;
+}
+
 function waitForShutdownSignal(logger) {
     return new Promise((resolve) => {
         const stop = (signal) => {
@@ -213,6 +228,7 @@ async function main() {
             options: {
                 version: { type: 'boolean', short: 'v', default: false },
                 'create-config': { type: 'boolean', default: false },
+                check: { type: 'boolean', short: 't', default: false },
                 debug: { type: 'boolean', short: 'd', default: false },
                 help: { type: 'boolean', short: 'h', default: false },
             },
@@ -249,6 +265,8 @@ async function main() {
 
     const config = await loadConfig(configFile, logger);
     if (!config) return 1;
+
+    if (values.check) return runCheck(config, configFile);
 
     return runServers(config, { debug: values.debug, logger });
 }
