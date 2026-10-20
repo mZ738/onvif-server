@@ -180,10 +180,20 @@ or, to describe the actual stream:
 Use the values of the real stream (for example from `ffprobe`), not wishful ones - clients cache what is advertised. After enabling audio, UniFi Protect picked up the microphone on reconnect without re-adopting the camera; it took a few minutes.
 
 ## Start Virtual Onvif Servers
+Optionally, store the Onvif schemas locally first (recommended, see below):
+```bash
+npm run vendor-schemas
+```
+
 Finally, to start the virtual Onvif devices run:
 ```bash
 node main.js ./config.yaml
 ```
+
+### Starting without internet access
+The WSDLs import the official Onvif schemas, which import further OASIS and W3C schemas - about a dozen files from three hosts, fetched on every start. If one of them cannot be loaded, the server refuses to start with a message like `failed to load WSDL: getaddrinfo EAI_AGAIN www.onvif.org`, so that a supervisor can retry.
+
+`npm run vendor-schemas` downloads the chain once into `wsdl/vendor/` (unmodified, with a `SHA256SUMS` file) and the server uses those copies from then on. The Docker image does this at build time.
 
 Your Virtual Onvif Devices should now automatically show up for adoption in Unifi Protect as "Onvif Cardinal" device. The username and password are the same as on the real Onvif device.
 

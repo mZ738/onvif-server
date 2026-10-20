@@ -12,6 +12,19 @@ const WSDL_DIR = path.join(ROOT, 'wsdl');
 const SNAPSHOT_FILE = path.join(ROOT, 'resources', 'snapshot.png');
 
 const WSDL_LOAD_TIMEOUT_MS = 60_000;
+const VENDOR_DIR = path.join(WSDL_DIR, 'vendor');
+
+/**
+ * Maps an http(s) schema import to the copy stored by scripts/vendor-schemas.js
+ * (wsdl/vendor/<host>/<path>). Anything not found locally is left to node-soap,
+ * which fetches it from the internet as before.
+ */
+export function resolveImport(includePath, vendorDir = VENDOR_DIR) {
+    if (!/^https?:\/\//.test(includePath)) return includePath;
+    const { host, pathname } = new URL(includePath);
+    const local = path.join(vendorDir, host, ...pathname.split('/').filter(Boolean));
+    return fs.existsSync(local) ? local : includePath;
+}
 
 const DISCOVERY_PORT = 3702;
 const DISCOVERY_GROUP = '239.255.255.250';
@@ -431,6 +444,7 @@ class OnvifServer {
             services: this.onvif,
             xml: fs.readFileSync(path.join(WSDL_DIR, wsdlFile), 'utf8'),
             forceSoap12Headers: true,
+            wsdl_options: { overrideImportLocation: (includePath) => resolveImport(includePath) },
             callback: (error) => settle(error),
         });
 
