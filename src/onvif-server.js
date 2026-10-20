@@ -40,6 +40,27 @@ function slug(name) {
     return name.replaceAll(' ', '_');
 }
 
+export const AUDIO_DEFAULTS = Object.freeze({ encoding: 'AAC', bitrate: 64, samplerate: 16, channels: 1 });
+
+/**
+ * `audio: true` advertises the defaults, a mapping overrides single fields.
+ * Units follow Onvif: bitrate in kbit/s, samplerate in kHz.
+ */
+function normalizeAudio(audio) {
+    if (!audio) return null;
+    return { ...AUDIO_DEFAULTS, ...(audio === true ? {} : audio) };
+}
+
+/** An Onvif "no such configuration" fault, as node-soap expects it to be thrown. */
+function noConfigFault(text) {
+    return {
+        Fault: {
+            Code: { Value: 'soap:Sender', Subcode: { value: 'ter:InvalidArgVal' } },
+            Reason: { Text: text },
+        },
+    };
+}
+
 class OnvifServer {
     #config;
     #logger;
@@ -63,6 +84,40 @@ class OnvifServer {
             Resolution: { Width: config.highQuality.width, Height: config.highQuality.height },
         };
 
+        // Optional audio advertisement. The audio bytes already flow through the
+        // RTSP forwarder unchanged; without these entries Onvif clients (UniFi
+        // Protect among them) treat the camera as having no microphone.
+        this.audio = normalizeAudio(config.audio);
+        const audioUseCount = config.lowQuality ? 2 : 1;
+
+        this.audioSource = this.audio && {
+            attributes: { token: 'audio_src_token' },
+            Channels: this.audio.channels,
+        };
+
+        this.audioSourceConfiguration = this.audio && {
+            attributes: { token: 'audio_src_config_token' },
+            Name: 'AudioSource',
+            UseCount: audioUseCount,
+            SourceToken: 'audio_src_token',
+        };
+
+        this.audioEncoderConfiguration = this.audio && {
+            attributes: { token: 'audio_encoder_config_token' },
+            Name: 'CardinalAudioConfiguration',
+            UseCount: audioUseCount,
+            Encoding: this.audio.encoding,
+            Bitrate: this.audio.bitrate,
+            SampleRate: this.audio.samplerate,
+            Multicast: {
+                Address: { Type: 'IPv4', IPv4Address: '0.0.0.0' },
+                Port: 0,
+                TTL: 0,
+                AutoStart: false,
+            },
+            SessionTimeout: 'PT1000S',
+        };
+
         this.profiles = [this.#buildProfile('MainStream', 'main_stream', 'encoder_hq_config_token', 'CardinalHqCameraConfiguration', config.highQuality)];
 
         if (config.lowQuality)
@@ -73,7 +128,11 @@ class OnvifServer {
 
     #buildProfile(name, token, encoderToken, encoderName, quality) {
         const { highQuality } = this.#config;
-        return {
+
+        // Key order is element order in the serialized XML, and tt:Profile is a
+        // sequence: VideoSource, AudioSource, VideoEncoder, AudioEncoder, ...
+        // The audio entries are therefore placed between, not appended.
+        const profile = {
             Name: name,
             attributes: { token },
             VideoSourceConfiguration: {
@@ -83,22 +142,29 @@ class OnvifServer {
                 SourceToken: 'video_src_token',
                 Bounds: { attributes: { x: 0, y: 0, width: highQuality.width, height: highQuality.height } },
             },
-            VideoEncoderConfiguration: {
-                attributes: { token: encoderToken },
-                Name: encoderName,
-                UseCount: 1,
-                Encoding: 'H264',
-                Resolution: { Width: quality.width, Height: quality.height },
-                Quality: quality.quality,
-                RateControl: {
-                    FrameRateLimit: quality.framerate,
-                    EncodingInterval: 1,
-                    BitrateLimit: quality.bitrate,
-                },
-                H264: { GovLength: quality.framerate, H264Profile: 'Main' },
-                SessionTimeout: 'PT1000S',
-            },
         };
+
+        if (this.audioSourceConfiguration) profile.AudioSourceConfiguration = this.audioSourceConfiguration;
+
+        profile.VideoEncoderConfiguration = {
+            attributes: { token: encoderToken },
+            Name: encoderName,
+            UseCount: 1,
+            Encoding: 'H264',
+            Resolution: { Width: quality.width, Height: quality.height },
+            Quality: quality.quality,
+            RateControl: {
+                FrameRateLimit: quality.framerate,
+                EncodingInterval: 1,
+                BitrateLimit: quality.bitrate,
+            },
+            H264: { GovLength: quality.framerate, H264Profile: 'Main' },
+            SessionTimeout: 'PT1000S',
+        };
+
+        if (this.audioEncoderConfiguration) profile.AudioEncoderConfiguration = this.audioEncoderConfiguration;
+
+        return profile;
     }
 
     #deviceServiceUri() {
@@ -232,6 +298,41 @@ class OnvifServer {
                     GetProfiles: () => ({ Profiles: this.profiles }),
 
                     GetVideoSources: () => ({ VideoSources: [this.videoSource] }),
+
+                    GetAudioSources: () => ({ AudioSources: this.audio ? [this.audioSource] : [] }),
+
+                    GetAudioSourceConfigurations: () => ({
+                        Configurations: this.audio ? [this.audioSourceConfiguration] : [],
+                    }),
+
+                    GetAudioSourceConfiguration: () => {
+                        if (!this.audio) throw noConfigFault('No audio source configured');
+                        return { Configuration: this.audioSourceConfiguration };
+                    },
+
+                    GetAudioEncoderConfigurations: () => ({
+                        Configurations: this.audio ? [this.audioEncoderConfiguration] : [],
+                    }),
+
+                    GetAudioEncoderConfiguration: () => {
+                        if (!this.audio) throw noConfigFault('No audio encoder configured');
+                        return { Configuration: this.audioEncoderConfiguration };
+                    },
+
+                    // The forwarded stream is fixed, so the only valid option is the
+                    // configuration that is actually being delivered.
+                    GetAudioEncoderConfigurationOptions: () => {
+                        if (!this.audio) throw noConfigFault('No audio encoder configured');
+                        return {
+                            Options: {
+                                Options: [{
+                                    Encoding: this.audio.encoding,
+                                    BitrateList: { Items: [this.audio.bitrate] },
+                                    SampleRateList: { Items: [this.audio.samplerate] },
+                                }],
+                            },
+                        };
+                    },
 
                     GetSnapshotUri: (args) => {
                         let uri = `http://${config.hostname}:${config.ports.server}/snapshot.png`;

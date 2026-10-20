@@ -44,6 +44,29 @@ function checkQuality(errors, path, quality, { required }) {
         errors.push(`${path}.snapshot: expected a path string`);
 }
 
+const AUDIO_ENCODINGS = ['G711', 'G726', 'AAC'];
+
+function checkPositiveInteger(errors, path, value) {
+    if (value !== undefined && (!Number.isInteger(value) || value <= 0))
+        errors.push(`${path}: expected a positive whole number, got ${JSON.stringify(value)}`);
+}
+
+function checkAudio(errors, path, audio) {
+    if (audio === undefined || audio === false || audio === true) return;
+    if (!isPlainObject(audio)) {
+        errors.push(`${path}: expected true or a mapping with encoding/bitrate/samplerate/channels`);
+        return;
+    }
+    if (audio.encoding !== undefined && !AUDIO_ENCODINGS.includes(audio.encoding))
+        errors.push(`${path}.encoding: expected one of ${AUDIO_ENCODINGS.join(', ')}, got ${JSON.stringify(audio.encoding)}`);
+    checkPositiveInteger(errors, `${path}.bitrate`, audio.bitrate);
+    checkPositiveInteger(errors, `${path}.samplerate`, audio.samplerate);
+    if (audio.samplerate > 192)
+        errors.push(`${path}.samplerate: Onvif expects kHz (e.g. 16), got ${audio.samplerate}`);
+    if (audio.channels !== undefined && audio.channels !== 1 && audio.channels !== 2)
+        errors.push(`${path}.channels: expected 1 or 2, got ${JSON.stringify(audio.channels)}`);
+}
+
 function checkCamera(errors, index, camera) {
     const path = `onvif[${index}]`;
 
@@ -90,6 +113,7 @@ function checkCamera(errors, index, camera) {
 
     checkQuality(errors, `${path}.highQuality`, camera.highQuality, { required: true });
     checkQuality(errors, `${path}.lowQuality`, camera.lowQuality, { required: false });
+    checkAudio(errors, `${path}.audio`, camera.audio);
 }
 
 /**

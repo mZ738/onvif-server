@@ -160,6 +160,25 @@ onvif:
 
 The above configuration creates a virtual Onvif device that listens on port 8081 of the `a2:a2:a2:a2:a2:a1` virtual network and forwards the RTSP video streams and snapshots from `192.168.1.152` (the real Onvif server).
 
+### Audio (optional)
+If the RTSP stream contains an audio track, the virtual device can advertise it. The audio itself already passes through the RTSP forwarder unchanged; without the advertisement, Onvif clients such as UniFi Protect treat the camera as having no microphone.
+
+```yaml
+    audio: true            # AAC, 64 kbit/s, 16 kHz, mono
+```
+
+or, to describe the actual stream:
+
+```yaml
+    audio:
+      encoding: AAC        # G711, G726 or AAC
+      bitrate: 64          # kbit/s
+      samplerate: 16       # kHz, not Hz
+      channels: 1
+```
+
+Use the values of the real stream (for example from `ffprobe`), not wishful ones - clients cache what is advertised. After enabling audio, UniFi Protect picked up the microphone on reconnect without re-adopting the camera; it took a few minutes.
+
 ## Start Virtual Onvif Servers
 Finally, to start the virtual Onvif devices run:
 ```bash
