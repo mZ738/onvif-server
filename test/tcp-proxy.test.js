@@ -120,3 +120,34 @@ test('close() tears down in-flight connections', async (t) => {
     await proxy.close();
     await closed;
 });
+
+test('enables TCP keepalive and disables Nagle on both legs', async (t) => {
+    const upstream = await startEchoServer();
+    const listenPort = await freePort();
+
+    const calls = { keepAlive: 0, noDelay: 0 };
+    const { setKeepAlive, setNoDelay } = net.Socket.prototype;
+    net.Socket.prototype.setKeepAlive = function (enable, delay) {
+        if (enable && delay > 0) calls.keepAlive++;
+        return setKeepAlive.call(this, enable, delay);
+    };
+    net.Socket.prototype.setNoDelay = function (noDelay) {
+        if (noDelay) calls.noDelay++;
+        return setNoDelay.call(this, noDelay);
+    };
+
+    const proxy = new TcpProxy({ listenHost: '127.0.0.1', listenPort, targetHost: '127.0.0.1', targetPort: upstream.port, logger });
+    await proxy.listen();
+    t.after(async () => {
+        net.Socket.prototype.setKeepAlive = setKeepAlive;
+        net.Socket.prototype.setNoDelay = setNoDelay;
+        await proxy.close();
+        await new Promise((resolve) => upstream.server.close(resolve));
+    });
+
+    await roundTrip(listenPort, 'ping');
+
+    // client leg + upstream leg
+    assert.ok(calls.keepAlive >= 2, `setKeepAlive called ${calls.keepAlive}x`);
+    assert.ok(calls.noDelay >= 2, `setNoDelay called ${calls.noDelay}x`);
+});
