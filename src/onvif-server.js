@@ -27,6 +27,9 @@ export function resolveImport(includePath, vendorDir = VENDOR_DIR) {
 }
 
 const DISCOVERY_PORT = 3702;
+// WS-Discovery: InstanceId must grow with every restart, so receivers can tell
+// a restarted device from a replayed message. Seconds since the epoch do that.
+const DISCOVERY_INSTANCE_ID = Math.floor(Date.now() / 1000);
 const DISCOVERY_GROUP = '239.255.255.250';
 
 /** Standard (non-DST) UTC offset for the year the given date falls in. */
@@ -176,6 +179,13 @@ class OnvifServer {
                 BitrateLimit: quality.bitrate,
             },
             H264: { GovLength: quality.framerate, H264Profile: 'Main' },
+            // Required by tt:VideoEncoderConfiguration; unicast only, so all zero.
+            Multicast: {
+                Address: { Type: 'IPv4', IPv4Address: '0.0.0.0' },
+                Port: 0,
+                TTL: 0,
+                AutoStart: false,
+            },
             SessionTimeout: 'PT1000S',
         };
 
@@ -256,7 +266,7 @@ class OnvifServer {
                                 },
                                 IO: {
                                     InputConnectors: 0,
-                                    RelayOutputs: 1,
+                                    RelayOutputs: 0,
                                     Extension: { Auxiliary: false, AuxiliaryCommands: '', Extension: {} },
                                 },
                                 Security: {
@@ -279,6 +289,20 @@ class OnvifServer {
                                 XAddr: this.#mediaServiceUri(),
                                 StreamingCapabilities: { RTPMulticast: false, RTP_TCP: true, RTP_RTSP_TCP: true, Extension: {} },
                                 Extension: { ProfileCapabilities: { MaximumNumberOfProfiles: this.profiles.length } },
+                            };
+                        }
+
+                        // tt:CapabilitiesExtension comes last in tt:Capabilities.
+                        if (this.audio && (category === undefined || category === 'All' || category === 'Device')) {
+                            response.Capabilities.Extension = {
+                                DeviceIO: {
+                                    XAddr: this.#deviceServiceUri(),
+                                    VideoSources: 1,
+                                    VideoOutputs: 0,
+                                    AudioSources: 1,
+                                    AudioOutputs: 0,
+                                    RelayOutputs: 0,
+                                },
                             };
                         }
 
@@ -479,6 +503,23 @@ class OnvifServer {
         });
     }
 
+    /**
+     * Scopes announced in WS-Discovery. Only capabilities the virtual device
+     * actually has: no PTZ scope (there is no PTZ service), an audio scope only
+     * when audio is advertised. hardware/name stay as before so already adopted
+     * devices keep matching.
+     */
+    discoveryScopes() {
+        return [
+            'onvif://www.onvif.org/Profile/Streaming',
+            'onvif://www.onvif.org/type/video_encoder',
+            ...(this.audio ? ['onvif://www.onvif.org/type/audio_encoder'] : []),
+            'onvif://www.onvif.org/hardware/Onvif',
+            'onvif://www.onvif.org/name/Cardinal',
+            'onvif://www.onvif.org/location/',
+        ];
+    }
+
     #probeResponse(probeUuid) {
         return `<?xml version="1.0" encoding="UTF-8"?>
                         <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope" xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
@@ -487,7 +528,7 @@ class OnvifServer {
                                 <wsa:RelatesTo>${probeUuid}</wsa:RelatesTo>
                                 <wsa:To SOAP-ENV:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsa:To>
                                 <wsa:Action SOAP-ENV:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</wsa:Action>
-                                <d:AppSequence SOAP-ENV:mustUnderstand="true" MessageNumber="${this.#discoveryMessageNo}" InstanceId="1234567890"/>
+                                <d:AppSequence SOAP-ENV:mustUnderstand="true" MessageNumber="${this.#discoveryMessageNo}" InstanceId="${DISCOVERY_INSTANCE_ID}"/>
                             </SOAP-ENV:Header>
                             <SOAP-ENV:Body>
                                 <d:ProbeMatches>
@@ -496,13 +537,7 @@ class OnvifServer {
                                             <wsa:Address>urn:uuid:${this.#config.uuid}</wsa:Address>
                                         </wsa:EndpointReference>
                                         <d:Types>dn:NetworkVideoTransmitter</d:Types>
-                                        <d:Scopes>
-                                            onvif://www.onvif.org/type/video_encoder
-                                            onvif://www.onvif.org/type/ptz
-                                            onvif://www.onvif.org/hardware/Onvif
-                                            onvif://www.onvif.org/name/Cardinal
-                                            onvif://www.onvif.org/location/
-                                        </d:Scopes>
+                                        <d:Scopes>${this.discoveryScopes().join(' ')}</d:Scopes>
                                         <d:XAddrs>${this.#deviceServiceUri()}</d:XAddrs>
                                         <d:MetadataVersion>1</d:MetadataVersion>
                                     </d:ProbeMatch>
