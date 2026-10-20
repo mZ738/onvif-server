@@ -11,6 +11,8 @@ const ROOT = path.join(import.meta.dirname, '..');
 const WSDL_DIR = path.join(ROOT, 'wsdl');
 const SNAPSHOT_FILE = path.join(ROOT, 'resources', 'snapshot.png');
 
+const WSDL_LOAD_TIMEOUT_MS = 60_000;
+
 const DISCOVERY_PORT = 3702;
 const DISCOVERY_GROUP = '239.255.255.250';
 
@@ -398,19 +400,49 @@ class OnvifServer {
             });
         });
 
-        this.#deviceService = soap.listen(this.#server, {
-            path: '/onvif/device_service',
-            services: this.onvif,
-            xml: fs.readFileSync(path.join(WSDL_DIR, 'device_service.wsdl'), 'utf8'),
-            forceSoap12Headers: true,
+        const device = this.#listenSoap('DeviceService', '/onvif/device_service', 'device_service.wsdl');
+        const media = this.#listenSoap('MediaService', '/onvif/media_service', 'media_service.wsdl');
+        this.#deviceService = device.service;
+        this.#mediaService = media.service;
+
+        // node-soap loads the WSDLs (and the Onvif schemas they import)
+        // asynchronously and, if that fails, still installs its request
+        // handler: every request then gets an HTTP 500 and nothing is logged.
+        // Waiting here turns that silent state into a failed start.
+        await Promise.all([device.ready, media.ready]);
+    }
+
+    #listenSoap(name, urlPath, wsdlFile) {
+        let settle;
+        const ready = new Promise((resolve, reject) => {
+            const timer = setTimeout(
+                () => reject(new Error(`${name}: WSDL not loaded after ${WSDL_LOAD_TIMEOUT_MS / 1000} s`)),
+                WSDL_LOAD_TIMEOUT_MS,
+            );
+            settle = (error) => {
+                clearTimeout(timer);
+                if (error) reject(new Error(`${name}: failed to load WSDL: ${error.message ?? error}`));
+                else resolve();
+            };
         });
 
-        this.#mediaService = soap.listen(this.#server, {
-            path: '/onvif/media_service',
+        const service = soap.listen(this.#server, {
+            path: urlPath,
             services: this.onvif,
-            xml: fs.readFileSync(path.join(WSDL_DIR, 'media_service.wsdl'), 'utf8'),
+            xml: fs.readFileSync(path.join(WSDL_DIR, wsdlFile), 'utf8'),
             forceSoap12Headers: true,
+            callback: (error) => settle(error),
         });
+
+        // Handler exceptions and faults are answered with HTTP 500 by node-soap;
+        // without this they would never reach the log.
+        service.log = (type, data) => {
+            if (type !== 'error') return;
+            const message = data?.Fault?.Reason?.Text ?? data?.message ?? String(data);
+            this.#logger.error(`${name} request failed: ${message}`);
+        };
+
+        return { service, ready };
     }
 
     enableDebugOutput() {
