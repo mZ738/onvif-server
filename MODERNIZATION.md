@@ -1,5 +1,11 @@
 # Modernization notes (v2.0.0)
 
+> These notes describe the modernization done in
+> [davidcoulson/onvif-server](https://github.com/davidcoulson/onvif-server).
+> The statement below that wire behaviour is unchanged applies to that step;
+> later changes in this fork (audio, capabilities, discovery scopes) are listed
+> in the [README](README.md#what-this-fork-adds).
+
 This fork targets **Node 24+** and trims the dependency tree by moving to the
 standard library. Behaviour on the wire is unchanged — the Onvif responses,
 WS-Discovery payload and config format are byte-for-byte compatible with v1, so
