@@ -10,6 +10,7 @@ import { createServer } from './src/onvif-server.js';
 import { createConfig } from './src/config-builder.js';
 import { validateConfig } from './src/config-schema.js';
 import { TcpProxy } from './src/tcp-proxy.js';
+import { planForwards } from './src/forwards.js';
 import { createLogger } from './src/logger.js';
 
 const USAGE = `Virtual Onvif Server
@@ -109,10 +110,7 @@ async function loadConfig(file, logger) {
 async function runServers(config, { debug, logger }) {
     const servers = [];
     const proxies = [];
-
-    // hostname -> listenPort -> targetPort, so several channels of one physical
-    // camera share a single set of forwarders.
-    const forwards = new Map();
+    const cameras = [];
 
     for (const cameraConfig of config.onvif) {
         const cameraLogger = logger.child({ camera: cameraConfig.name });
@@ -137,39 +135,32 @@ async function runServers(config, { debug, logger }) {
         server.startDiscovery();
         if (debug) server.enableDebugOutput();
         servers.push(server);
-
-        const target = cameraConfig.target.hostname;
-        if (!forwards.has(target)) forwards.set(target, new Map());
-
-        if (cameraConfig.ports.rtsp && cameraConfig.target.ports.rtsp)
-            forwards.get(target).set(cameraConfig.ports.rtsp, { targetPort: cameraConfig.target.ports.rtsp, host: server.getHostname() });
-
-        if (cameraConfig.ports.snapshot && cameraConfig.target.ports.snapshot)
-            forwards.get(target).set(cameraConfig.ports.snapshot, { targetPort: cameraConfig.target.ports.snapshot, host: server.getHostname() });
+        cameras.push({ host: server.getHostname(), camera: cameraConfig });
     }
 
-    for (const [targetHost, ports] of forwards) {
-        for (const [listenPort, { targetPort, host }] of ports) {
-            const proxy = new TcpProxy({
-                listenHost: host,
-                listenPort,
-                targetHost,
-                targetPort,
-                logger,
-            });
+    let forwards;
+    try {
+        forwards = planForwards(cameras);
+    } catch (error) {
+        logger.error(`invalid forwarding setup: ${error.message}`);
+        await shutdown(servers, proxies);
+        return 1;
+    }
 
-            logger.info(`starting tcp proxy ${host}:${listenPort} -> ${targetHost}:${targetPort}`);
+    for (const { listenHost, listenPort, targetHost, targetPort } of forwards) {
+        const proxy = new TcpProxy({ listenHost, listenPort, targetHost, targetPort, logger });
 
-            try {
-                await proxy.listen();
-            } catch (error) {
-                logger.error(`failed to start tcp proxy on port ${listenPort}: ${error.message}`, { code: error.code });
-                await shutdown(servers, [...proxies, proxy]);
-                return 1;
-            }
+        logger.info(`starting tcp proxy ${listenHost}:${listenPort} -> ${targetHost}:${targetPort}`);
 
-            proxies.push(proxy);
+        try {
+            await proxy.listen();
+        } catch (error) {
+            logger.error(`failed to start tcp proxy on ${listenHost}:${listenPort}: ${error.message}`, { code: error.code });
+            await shutdown(servers, [...proxies, proxy]);
+            return 1;
         }
+
+        proxies.push(proxy);
     }
 
     logger.info(`ready — ${servers.length} virtual camera${servers.length === 1 ? '' : 's'}, ${proxies.length} tcp proxies`);
