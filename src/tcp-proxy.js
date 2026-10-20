@@ -1,5 +1,17 @@
 import net from 'node:net';
 
+// A client that disappears without closing its connection (power loss, Wi-Fi
+// drop, a crashed NVR process) otherwise leaves the forwarder writing into a
+// full send queue until the kernel gives up, which takes many minutes.
+const KEEPALIVE_DELAY_MS = 10_000;
+
+function tune(socket) {
+    socket.setKeepAlive(true, KEEPALIVE_DELAY_MS);
+    // RTSP control messages and RTP-over-TCP packets are small and latency
+    // sensitive; Nagle's algorithm only adds delay here.
+    socket.setNoDelay(true);
+}
+
 /**
  * A plain TCP forwarder, replacing the unmaintained `node-tcp-proxy` 0.0.x.
  *
@@ -25,6 +37,8 @@ export class TcpProxy {
 
             this.#track(client);
             this.#track(upstream);
+            tune(client);
+            tune(upstream);
 
             const teardown = () => {
                 client.destroy();
