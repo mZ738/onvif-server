@@ -20,25 +20,41 @@ const BYTES = 'onvif_server_proxy_bytes_total';
 const BYTES_HELP = 'Bytes forwarded; direction to_client is camera to NVR.';
 const LAST = 'onvif_server_proxy_last_transfer_timestamp_seconds';
 const LAST_HELP = 'Unix time of the last forwarded chunk per direction. A stale to_client value on an open connection means a frozen stream.';
+const MAX_IDLE = 'onvif_server_proxy_max_idle_seconds';
+const MAX_IDLE_HELP = 'Longest time any single open connection has gone without data in this direction; 0 without connections. Unlike the byte counters it exposes one stalled connection next to healthy ones.';
+const DIRECTIONS = ['to_client', 'to_target'];
 
-function describeProxyMetrics(metrics, labels) {
+function describeProxyMetrics(metrics, labels, connections) {
     // Export zero-valued series from the start, so "no connection yet" and
     // "metric missing" are distinguishable.
     metrics.set(CONNECTIONS, CONNECTIONS_HELP, labels, 0);
     metrics.inc(CONNECTIONS_TOTAL, CONNECTIONS_TOTAL_HELP, labels, 0);
-    for (const direction of ['to_client', 'to_target']) metrics.inc(BYTES, BYTES_HELP, { ...labels, direction }, 0);
+    for (const direction of DIRECTIONS) metrics.inc(BYTES, BYTES_HELP, { ...labels, direction }, 0);
     metrics.describe(LAST, 'gauge', LAST_HELP);
+
+    // An NVR often keeps several sessions per camera open. When one of them
+    // stalls while another keeps flowing, the per-forwarder byte counters keep
+    // growing; only a per-connection view shows the stall.
+    metrics.collect(() => {
+        const now = Date.now();
+        for (const direction of DIRECTIONS) {
+            let idle = 0;
+            for (const connection of connections) idle = Math.max(idle, now - connection.last[direction]);
+            metrics.set(MAX_IDLE, MAX_IDLE_HELP, { ...labels, direction }, Math.round(idle / 100) / 10);
+        }
+    });
 }
 
-function countConnection(metrics, labels, client, upstream) {
+function countConnection(metrics, labels, client, upstream, connection) {
     metrics.add(CONNECTIONS, CONNECTIONS_HELP, labels, 1);
     metrics.inc(CONNECTIONS_TOTAL, CONNECTIONS_TOTAL_HELP, labels);
 
     // Extra 'data' listeners only observe; pipe() keeps doing the forwarding.
     const count = (direction) => (chunk) => {
         const directed = { ...labels, direction };
+        connection.last[direction] = Date.now();
         metrics.inc(BYTES, BYTES_HELP, directed, chunk.length);
-        metrics.set(LAST, LAST_HELP, directed, Math.floor(Date.now() / 1000));
+        metrics.set(LAST, LAST_HELP, directed, Math.floor(connection.last[direction] / 1000));
     };
     upstream.on('data', count('to_client'));
     client.on('data', count('to_target'));
@@ -65,7 +81,8 @@ export class TcpProxy {
         this.listenPort = listenPort;
 
         const labels = { listen: `${listenHost}:${listenPort}`, target: this.#target };
-        if (metrics) describeProxyMetrics(metrics, labels);
+        const connections = new Set();
+        if (metrics) describeProxyMetrics(metrics, labels, connections);
 
         this.#server = net.createServer((client) => {
             const upstream = net.createConnection({ host: targetHost, port: targetPort });
@@ -75,10 +92,15 @@ export class TcpProxy {
             tune(client);
             tune(upstream);
 
+            // Idle time counts from the moment the connection was accepted.
+            const opened = Date.now();
+            const connection = { last: { to_client: opened, to_target: opened } };
+
             let tornDown = false;
             const teardown = () => {
                 if (!tornDown && metrics) metrics.add(CONNECTIONS, CONNECTIONS_HELP, labels, -1);
                 tornDown = true;
+                connections.delete(connection);
                 client.destroy();
                 upstream.destroy();
             };
@@ -99,7 +121,10 @@ export class TcpProxy {
             client.pipe(upstream);
             upstream.pipe(client);
 
-            if (metrics) countConnection(metrics, labels, client, upstream);
+            if (metrics) {
+                connections.add(connection);
+                countConnection(metrics, labels, client, upstream, connection);
+            }
         });
 
         this.#server.on('error', (error) => {

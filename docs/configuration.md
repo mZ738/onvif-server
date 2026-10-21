@@ -95,18 +95,16 @@ With a `metrics:` block the server serves `GET /metrics` in the Prometheus text 
 | `onvif_server_proxy_connections_total` | `listen`, `target` | Connections accepted |
 | `onvif_server_proxy_bytes_total` | `listen`, `target`, `direction` | Bytes forwarded; `to_client` is camera → NVR |
 | `onvif_server_proxy_last_transfer_timestamp_seconds` | `listen`, `target`, `direction` | Unix time of the last forwarded data |
+| `onvif_server_proxy_max_idle_seconds` | `listen`, `target`, `direction` | Longest time any single open connection went without data; 0 without connections |
 | `onvif_server_soap_requests_total` | `camera`, `service`, `method` | Onvif requests |
 | `onvif_server_soap_errors_total` | `camera`, `service` | Requests answered with a fault or HTTP 500 |
 | `onvif_server_build_info` | `version` | Constant 1 |
 
-A frozen picture - which NVRs often keep reporting as "connected" - shows up as an open connection whose `to_client` data has stopped:
+A frozen picture - which NVRs often keep reporting as "connected" - shows up as an open connection whose `to_client` data has stopped. NVRs often keep several sessions per camera open, so use the per-connection `max_idle_seconds` rather than the byte counters, which keep growing as long as any one session flows:
 
 ```yaml
 - alert: OnvifStreamFrozen
-  expr: |
-    onvif_server_proxy_connections > 0
-    and on (listen, target)
-    time() - onvif_server_proxy_last_transfer_timestamp_seconds{direction="to_client"} > 30
+  expr: onvif_server_proxy_max_idle_seconds{direction="to_client"} > 30
   for: 1m
 ```
 

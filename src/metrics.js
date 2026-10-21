@@ -6,6 +6,12 @@ import http from 'node:http';
  */
 export class Metrics {
     #families = new Map();
+    #collectors = [];
+
+    /** Registers a function that updates values right before every render, for values that change without events (durations). */
+    collect(fn) {
+        this.#collectors.push(fn);
+    }
 
     #family(name, type, help) {
         let family = this.#families.get(name);
@@ -45,6 +51,7 @@ export class Metrics {
     }
 
     render() {
+        for (const collector of this.#collectors) collector();
         const lines = [];
         for (const [name, { type, help, series }] of this.#families) {
             lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`);
