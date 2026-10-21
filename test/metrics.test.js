@@ -101,3 +101,54 @@ test('config validation of the metrics block', () => {
     assert.ok(validateConfig({ ...validConfig(), metrics: { port: 'x' } }).some((p) => p.startsWith('metrics.port')));
     assert.ok(validateConfig({ ...validConfig(), metrics: true }).some((p) => p.startsWith('metrics:')));
 });
+
+test('max idle exposes one stalled connection next to a flowing one', async (t) => {
+    // Upstream: the first connection gets data every 50 ms, the second none.
+    let accepted = 0;
+    const timers = [];
+    const upstream = await new Promise((resolve) => {
+        const server = net.createServer((socket) => {
+            socket.on('error', () => {});
+            if (accepted++ === 0) timers.push(setInterval(() => socket.write('x'), 50));
+        });
+        server.listen(0, '127.0.0.1', () => resolve(server));
+    });
+    const metrics = new Metrics();
+    const proxy = new TcpProxy({
+        listenHost: '127.0.0.1',
+        listenPort: 0,
+        targetHost: '127.0.0.1',
+        targetPort: upstream.address().port,
+        logger,
+        metrics,
+    });
+    await proxy.listen();
+
+    const idle = () => sample(metrics.render(), 'onvif_server_proxy_max_idle_seconds', { direction: 'to_client' });
+    assert.equal(idle(), 0, 'no connection yet');
+
+    const { port } = proxy.address();
+    const open = () => new Promise((resolve) => {
+        const socket = net.createConnection({ host: '127.0.0.1', port }, () => resolve(socket));
+        socket.on('error', () => {});
+    });
+    const flowing = await open();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stalled = await open();
+    t.after(async () => {
+        for (const timer of timers) clearInterval(timer);
+        flowing.destroy();
+        stalled.destroy();
+        await proxy.close();
+        await new Promise((resolve) => upstream.close(resolve));
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const bytesBefore = sample(metrics.render(), 'onvif_server_proxy_bytes_total', { direction: 'to_client' });
+    assert.ok(bytesBefore > 0, 'the healthy connection keeps the byte counter growing');
+    assert.ok(idle() >= 0.5, `stalled connection must show, got ${idle()}`);
+
+    stalled.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.ok(idle() < 0.3, `after the stalled connection is gone only the flowing one counts, got ${idle()}`);
+});
