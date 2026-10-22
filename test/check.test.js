@@ -51,6 +51,21 @@ test('reports devices, profiles, audio and forwarders without errors', (t) => {
     assert.match(text, /192\.0\.2\.22:8554 -> 192\.0\.2\.10:554/);
 });
 
+test('reports the event service and the broker, without credentials', (t) => {
+    const config = validConfig([camera('192.0.2.21', { motion: { topic: 'frigate/front/motion', resetAfter: 60 } })]);
+    config.mqtt = { url: 'mqtt://192.0.2.30:1883', username: 'onvif' };
+
+    const withoutPassword = checkConfig(config, { vendorDir: tempDir(t), env: {} });
+    assert.deepEqual(withoutPassword.errors, []);
+    const text = withoutPassword.report.join('\n');
+    assert.match(text, /events {2}http:\/\/192\.0\.2\.21:8081\/onvif\/events_service, motion from MQTT frigate\/front\/motion \(ON\/OFF, reset after 60 s\)/);
+    assert.match(text, /mqtt {4}mqtt:\/\/192\.0\.2\.30:1883 as onvif/);
+    assert.ok(withoutPassword.warnings.some((warning) => warning.includes('MQTT_PASSWORD')));
+
+    const withPassword = checkConfig(config, { vendorDir: tempDir(t), env: { MQTT_PASSWORD: 'x' } });
+    assert.ok(!withPassword.warnings.some((warning) => warning.includes('MQTT_PASSWORD')));
+});
+
 test('an unresolvable MAC is an error', (t) => {
     const config = validConfig([validCamera({ mac: '02:00:00:00:00:99' })]);
     const { errors } = checkConfig(config, { vendorDir: tempDir(t) });

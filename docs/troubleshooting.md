@@ -40,6 +40,15 @@ If the camera itself stalls (Wi-Fi), go2rtc reconnects on its own in roughly 20-
 
 Add [`audio:`](configuration.md#audio) to the camera and restart. Without it the stream's audio is delivered but not advertised.
 
+## No motion events
+
+Work through the chain with the [metrics](configuration.md#metrics) or `--debug`:
+
+1. `onvif_server_mqtt_connected` is 0: broker address, login (`MQTT_PASSWORD` set for the process?) or firewall. The log says why.
+2. `onvif_server_motion_active` never changes: the topic or the payloads do not match. `mosquitto_sub -v -t 'frigate/#'` shows what is actually published; with `--debug` the server logs payloads it ignores.
+3. `onvif_server_event_subscriptions` is 0: the NVR does not subscribe. UniFi Protect needs 7.1.55 or later. Protect re-reads a camera's capabilities on reconnect (observed for audio), so restart this server once after adding `motion:`; if that is not enough, reconnect the camera in Protect.
+4. Motion is reported, but Protect still shows no events: check the camera's motion/recording settings in Protect. Protect's handling of third-party events is not documented in detail; please report what you see.
+
 ## Every request returns HTTP 500, or the server does not start
 
 `failed to load WSDL` in the log means the Onvif schemas could not be downloaded - see [Starting without internet access](running.md#starting-without-internet-access). Older versions did not log this and kept answering HTTP 500 until restarted.

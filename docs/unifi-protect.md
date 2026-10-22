@@ -19,3 +19,11 @@ From Protect 7.2 on, Protect manages recording/encoding settings and the clock o
 
 - **Encoder options** list exactly the configured stream (resolution, frame rate, bitrate). A `SetVideoEncoderConfiguration` that asks for those values is accepted; any other value is refused with the Onvif fault `ter:ConfigModify`, and the log names the field (`client tried to change the encoder, ...`). Change such settings on the real camera (or in go2rtc) and then in the config.
 - **Time** comes from the host. `SetSystemDateAndTime` with NTP is accepted; a manual time is accepted only within 5 s of the host clock - otherwise the log shows how far apart they are. `SetNTP` is stored and reported back by `GetNTP` but **not applied**: synchronise the host itself (chrony, systemd-timesyncd), preferably with the same NTP server Protect hands out.
+
+## Motion events
+
+Since Protect 7.1.55, third-party cameras can deliver motion through Onvif events. With [`motion:`](configuration.md#motion-events) the virtual camera offers an event service and passes on motion it receives over MQTT, for example from Frigate running on the same stream.
+
+- Protect subscribes on its own when the camera is (re)connected; `onvif_server_event_subscriptions` shows whether it did.
+- These are plain motion events. Protect's smart detections (person, vehicle, ...) on third-party cameras need an AI Port - see [Feature support](#feature-support-by-protect-version).
+- Not verified against every Protect version: which of the two published topics Protect evaluates. Both are sent, as Hikvision-family cameras do; motion from those has been reported to work in Protect 7.1.

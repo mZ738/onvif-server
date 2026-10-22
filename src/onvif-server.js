@@ -7,6 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 
+import { EventService, EVENTS_PATH } from './event-service.js';
+
 const ROOT = path.join(import.meta.dirname, '..');
 const WSDL_DIR = path.join(ROOT, 'wsdl');
 const SNAPSHOT_FILE = path.join(ROOT, 'resources', 'snapshot.png');
@@ -140,6 +142,7 @@ class OnvifServer {
     #snapshot;
     #metrics;
     #ntp = { FromDHCP: false, NTPManual: [] };
+    #events = null;
     #lastWarning = new Map();
 
     constructor(config, logger, { metrics = null } = {}) {
@@ -273,6 +276,15 @@ class OnvifServer {
         return `http://${this.#config.hostname}:${this.#config.ports.server}/onvif/media_service`;
     }
 
+    #eventServiceUri() {
+        return `http://${this.#config.hostname}:${this.#config.ports.server}${EVENTS_PATH}`;
+    }
+
+    /** Events are offered only when a motion source is configured. */
+    get hasEvents() {
+        return Boolean(this.#config.motion);
+    }
+
     #buildServices() {
         const config = this.#config;
 
@@ -355,6 +367,16 @@ class OnvifServer {
                             };
                         }
 
+                        // tt:Capabilities is a sequence: Device, Events, ..., Media.
+                        if (this.hasEvents && (category === undefined || category === 'All' || category === 'Events')) {
+                            response.Capabilities.Events = {
+                                XAddr: this.#eventServiceUri(),
+                                WSSubscriptionPolicySupport: false,
+                                WSPullPointSupport: true,
+                                WSPausableSubscriptionManagerInterfaceSupport: false,
+                            };
+                        }
+
                         if (category === undefined || category === 'All' || category === 'Media') {
                             response.Capabilities.Media = {
                                 XAddr: this.#mediaServiceUri(),
@@ -392,6 +414,11 @@ class OnvifServer {
                                 XAddr: this.#mediaServiceUri(),
                                 Version: { Major: 2, Minor: 5 },
                             },
+                            ...(this.hasEvents ? [{
+                                Namespace: 'http://www.onvif.org/ver10/events/wsdl',
+                                XAddr: this.#eventServiceUri(),
+                                Version: { Major: 2, Minor: 5 },
+                            }] : []),
                         ],
                     }),
 
@@ -563,9 +590,18 @@ class OnvifServer {
         };
     }
 
-    /** Serves the placeholder snapshot. Bound as an arrow function so `this` survives. */
+    /** Serves events and the placeholder snapshot. Bound as an arrow function so `this` survives. */
     #listen = (request, response) => {
-        const { pathname } = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`);
+        const { pathname } = new URL(request.url, 'http://localhost');
+
+        if (this.#events?.handles(pathname)) {
+            this.#events.handle(request, response, pathname).catch((error) => {
+                this.#logger.error(`event request failed: ${error.message}`);
+                if (!response.headersSent) response.writeHead(500);
+                response.end();
+            });
+            return;
+        }
 
         if (pathname === '/snapshot.png') {
             this.#snapshot ??= fs.readFileSync(SNAPSHOT_FILE);
@@ -578,7 +614,22 @@ class OnvifServer {
         response.end('404 Not Found\n');
     };
 
+    /** Publishes a motion change to Onvif event subscribers (no-op without `motion:`). */
+    setMotion(active) {
+        this.#events?.setMotion(active);
+    }
+
     async startServer() {
+        if (this.hasEvents) {
+            this.#events = new EventService({
+                // The bound port, so subscription references are right even with ports.server: 0.
+                baseUrl: () => `http://${this.#config.hostname}:${this.#server?.address()?.port ?? this.#config.ports.server}`,
+                logger: this.#logger,
+                metrics: this.#metrics,
+                camera: this.#config.name,
+            });
+        }
+
         this.#server = http.createServer(this.#listen);
 
         // Without this, an EADDRINUSE anywhere kills the whole process.
@@ -767,6 +818,10 @@ class OnvifServer {
 
     async close() {
         const closers = [];
+
+        // Answers pending long polls first, otherwise server.close() waits for them.
+        this.#events?.close();
+        this.#events = null;
 
         // Null the handles as we go: dgram.close() on an already-closed socket
         // throws, so a second close() must be a no-op rather than a surprise.

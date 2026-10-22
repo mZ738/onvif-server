@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from './onvif-server.js';
 import { planForwards } from './forwards.js';
 import { createLogger } from './logger.js';
+import { MOTION_DEFAULTS, redactUrl } from './mqtt-motion.js';
 
 const DEFAULT_VENDOR_DIR = path.join(import.meta.dirname, '..', 'wsdl', 'vendor');
 
@@ -50,7 +51,7 @@ function describeProfile(profile) {
  *
  * @returns {{ errors: string[], warnings: string[], report: string[] }}
  */
-export function checkConfig(config, { vendorDir = DEFAULT_VENDOR_DIR } = {}) {
+export function checkConfig(config, { vendorDir = DEFAULT_VENDOR_DIR, env = process.env } = {}) {
     const errors = [];
     const warnings = [];
     const report = [];
@@ -71,6 +72,10 @@ export function checkConfig(config, { vendorDir = DEFAULT_VENDOR_DIR } = {}) {
         report.push(`  onvif   http://${host}:${cameraConfig.ports.server}/onvif/device_service`);
         for (const profile of server.profiles) report.push(`  profile ${describeProfile(profile)}`);
         report.push(`  scopes  ${server.discoveryScopes().map((scope) => scope.replace('onvif://www.onvif.org/', '')).join(' ')}`);
+        if (cameraConfig.motion) {
+            const { topic, payloadOn = MOTION_DEFAULTS.payloadOn, payloadOff = MOTION_DEFAULTS.payloadOff, resetAfter } = cameraConfig.motion;
+            report.push(`  events  http://${host}:${cameraConfig.ports.server}/onvif/events_service, motion from MQTT ${topic} (${payloadOn}/${payloadOff}${resetAfter ? `, reset after ${resetAfter} s` : ''})`);
+        }
     }
 
     try {
@@ -79,6 +84,11 @@ export function checkConfig(config, { vendorDir = DEFAULT_VENDOR_DIR } = {}) {
         for (const f of forwards) report.push(`  ${f.listenHost}:${f.listenPort} -> ${f.targetHost}:${f.targetPort}`);
     } catch (error) {
         errors.push(`forwarding: ${error.message}`);
+    }
+
+    if (config.mqtt) {
+        report.push(`mqtt    ${redactUrl(config.mqtt.url)}${config.mqtt.username ? ` as ${config.mqtt.username}` : ''}`);
+        if (config.mqtt.username && !env.MQTT_PASSWORD) warnings.push('mqtt.username is set but MQTT_PASSWORD is not - the broker login will have no password');
     }
 
     if (config.metrics) report.push(`metrics http://${config.metrics.host ?? '0.0.0.0'}:${config.metrics.port}/metrics`);
