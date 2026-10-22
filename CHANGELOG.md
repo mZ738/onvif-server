@@ -2,6 +2,17 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). Releases are cut with `npm version <major|minor|patch>` and `git push --follow-tags`; the [Release workflow](.github/workflows/release.yml) then runs the tests, publishes the image to `ghcr.io/mz738/onvif-server` and creates the GitHub release.
 
+## [2.1.1] - 2026-10-22
+
+### Fixed
+
+- `npm run vendor-schemas` left `wsdl/vendor/` readable only for the user who ran it (the staging directory comes from `mkdtemp`, 0700). A server running under its own user then reported `schemas not vendored` and fetched the schemas from the internet on every start. Directories are now 0755 and files 0644 ([#6](https://github.com/mZ738/onvif-server/issues/6)).
+
+### Added
+
+- A weekly workflow watches Ubiquiti's UniFi Protect release notes and opens an issue when a release mentions third-party cameras.
+- Docs: a camera adopted before `motion:` existed must be adopted again; one MAC per camera IP also applies to veth setups.
+
 ## [2.1.0] - 2026-10-22
 
 First release of this fork. Everything below is on top of davidcoulson/onvif-server 2.0.0.
@@ -23,4 +34,5 @@ First release of this fork. Everything below is on top of davidcoulson/onvif-ser
 - TCP keepalive on forwarded connections; the WS-Discovery `InstanceId` grows with every start; one discovery socket instead of one per probe.
 - `follow-redirects` updated (GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c).
 
+[2.1.1]: https://github.com/mZ738/onvif-server/releases/tag/v2.1.1
 [2.1.0]: https://github.com/mZ738/onvif-server/releases/tag/v2.1.0
