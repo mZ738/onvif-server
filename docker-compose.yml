@@ -18,7 +18,7 @@ name: onvif-server
 
 x-onvif: &onvif
   build: .
-  # Or use the published image instead of building (tags: 2.1.0, 2.1, latest):
+  # Or use the published image instead of building (tags: 2.1.1, 2.1, latest):
   # image: ghcr.io/mz738/onvif-server:latest
   restart: unless-stopped
   environment:

@@ -40,7 +40,7 @@ docker compose up -d
 
 The image stores the Onvif schemas at build time. With macvlan the Docker host itself cannot reach the containers; that does not matter when the NVR runs elsewhere.
 
-Every release publishes a multi-arch image (amd64, arm64) to `ghcr.io/mz738/onvif-server`, tagged with the version (`2.1.0`), `major.minor` (`2.1`) and `latest`. Swap `build: .` for `image: ghcr.io/mz738/onvif-server:2.1` in the compose file to use it. See [CHANGELOG.md](../CHANGELOG.md) for what each release contains.
+Every release publishes a multi-arch image (amd64, arm64) to `ghcr.io/mz738/onvif-server`, tagged with the version (`2.1.1`), `major.minor` (`2.1`) and `latest`. Swap `build: .` for `image: ghcr.io/mz738/onvif-server:2.1` in the compose file to use it. See [CHANGELOG.md](../CHANGELOG.md) for what each release contains.
 
 To generate a config inside the container:
 
