@@ -41,6 +41,21 @@ export function localPathFor(url, root) {
     return path.join(root, host, ...pathname.split('/').filter(Boolean));
 }
 
+/**
+ * Directories 0755, files 0644, all the way down. The staging directory comes
+ * from mkdtemp (0700), so without this a tree built by root is unreadable for
+ * the service user and the server fetches the schemas from the internet on
+ * every start, as if they had never been stored.
+ */
+export async function makeWorldReadable(dir) {
+    await fs.chmod(dir, 0o755);
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+        const entryPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) await makeWorldReadable(entryPath);
+        else await fs.chmod(entryPath, 0o644);
+    }
+}
+
 async function fetchText(url, attempts = 3) {
     for (let attempt = 1; ; attempt++) {
         try {
@@ -78,6 +93,7 @@ async function main() {
 
         sums.sort((a, b) => a.slice(66).localeCompare(b.slice(66)));
         await fs.writeFile(path.join(staging, 'SHA256SUMS'), `${sums.join('\n')}\n`);
+        await makeWorldReadable(staging);
 
         // Swap atomically, so a failed download never leaves a half-filled directory.
         const previous = `${TARGET}.old`;
