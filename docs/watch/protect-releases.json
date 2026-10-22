@@ -1,0 +1,83 @@
+{
+  "feed": "https://community.ui.com/rss/releases/UniFi-Protect/aada5f38-35d4-4525-9235-b14bd320e4d0",
+  "pattern": "third[- ]?party|onvif",
+  "checked": "2026-10-22T20:23:22.081Z",
+  "items": [
+    {
+      "title": "UniFi Protect Application 7.3.70",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-3-70/7853e377-dc73-4c41-9278-8174f252e3d2",
+      "published": "Fri, 02 Oct 2026 12:31:01 GMT",
+      "matches": [
+        "Fixed an issue where third-party camera image settings could be overwritten after reconnecting to Protect."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.2.105",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-2-105/4fa06975-6aa3-4e3f-b7d5-8814e331d14c",
+      "published": "Wed, 12 Aug 2026 11:34:30 GMT",
+      "matches": [
+        "UniFi Protect 7.2.105 introduces Evidence Trust to verify the authenticity of exported cases, Redesigned Case Management, Extended Third Party Camera support, and Personal Protective Equipment (PPE) Detection. This release also improves the Integration API with the new PoS API.",
+        "Added ONVIF Profile support for expanded third-party camera compatibility.",
+        "Fixed an issue where some third-party cameras could experience stream instability and unexpected configuration changes.",
+        "Fixed an issue where third-party camera adoption did not prompt for credentials in some cases.",
+        "Fixed an issue where event detection did not work on some third-party cameras paired with AI Port.",
+        "Fixed an issue where third-party cameras with motion detection could not be selected in scope of Global Alarm Manager."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.2.98",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-2-98/3b090596-55f5-4c27-824b-44951c2d4a25",
+      "published": "Mon, 03 Aug 2026 16:07:19 GMT",
+      "matches": [
+        "UniFi Protect 7.2.98 introduces Evidence Trust to verify the authenticity of exported cases, Redesigned Case Management, Extended Third Party Camera support, and Personal Protective Equipment (PPE) Detection. This release also improves the Integration API with the new PoS API.",
+        "Added ONVIF Profile support for expanded third-party camera compatibility.",
+        "Fixed an issue where some third-party cameras could experience stream instability and unexpected configuration changes.",
+        "Fixed an issue where third-party camera adoption did not prompt for credentials in some cases.",
+        "Fixed an issue where event detection did not work on some third-party cameras paired with AI Port.",
+        "Fixed an issue where third-party cameras with motion detection could not be selected in scope of Global Alarm Manager."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.1.77",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-1-77/a593f548-299d-42db-a2ba-3738f9e07c28",
+      "published": "Fri, 05 Jun 2026 10:09:44 GMT",
+      "matches": [
+        "Fixed an issue where RTSPS streams could fail to connect in third-party applications."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.1.60",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-1-60/470e3f55-27fe-4437-918f-1983562f459a",
+      "published": "Sat, 16 May 2026 12:35:52 GMT",
+      "matches": [
+        "UniFi Protect 7.1.60 introduces Alarm response with professional monitoring and SIA integration, expanded third-party camera feature support, and webhook shortcuts on camera streams. This release also improves the Integration API and overall compatibility.",
+        "Added audio support for third-party cameras with audio capability.",
+        "Added motion detection support for third-party cameras with motion detection capabilities.",
+        "Added support for detecting configuration changes on third-party cameras.",
+        "Fixed an issue where the Within/Outside schedule option was missing when using Custom Schedule on third-party cameras.",
+        "Fixed an issue causing repeated disconnections for some third-party cameras in rare cases."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.1.55",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-1-55/c341413c-f65a-41d2-a83e-2a8f317b27ac",
+      "published": "Thu, 14 May 2026 13:24:09 GMT",
+      "matches": [
+        "UniFi Protect 7.1.55 introduces Alarm response with professional monitoring and SIA integration, expanded third-party camera feature support, and webhook shortcuts on camera streams. This release also improves the Integration API and overall compatibility.",
+        "Added audio support for third-party cameras with audio capability.",
+        "Added motion detection support for third-party cameras with motion detection capabilities.",
+        "Added support for detecting configuration changes on third-party cameras.",
+        "Fixed an issue where the Within/Outside schedule option was missing when using Custom Schedule on third-party cameras.",
+        "Fixed an issue causing repeated disconnections for some third-party cameras in rare cases."
+      ]
+    },
+    {
+      "title": "UniFi Protect Application 7.0.88",
+      "link": "https://community.ui.com/releases/UniFi-Protect-Application-7-0-88/c66509fd-94ca-4f8e-984a-302e1d8aa97d",
+      "published": "Mon, 16 Mar 2026 10:42:49 GMT",
+      "matches": [
+        "Fixed an issue where thumbnails only showed the beginning of motion detection for third-party cameras connected to AI Port."
+      ]
+    }
+  ]
+}
