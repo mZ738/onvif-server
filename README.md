@@ -1,6 +1,6 @@
 # Virtual Onvif Server
 
-[![CI](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml/badge.svg)](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml)
+[![CI](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml/badge.svg)](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/mZ738/onvif-server?sort=semver)](https://github.com/mZ738/onvif-server/releases)
 
 Turns an RTSP stream into a virtual Onvif camera, so NVRs that only accept Onvif devices - UniFi Protect in particular - can record and show it. It also splits multi-channel recorders (Dahua/Hikvision XVRs, multi-lens cameras) into one virtual camera per channel.
 
@@ -41,6 +41,7 @@ Requirements: **Node.js 24+**, one free IP address per virtual camera on the NVR
 ```bash
 git clone https://github.com/mZ738/onvif-server.git
 cd onvif-server
+git checkout v2.1.0             # a release tag; main is the development branch
 npm ci --omit=dev
 npm run vendor-schemas          # store the Onvif schemas locally (needs internet once)
 
@@ -50,6 +51,8 @@ node main.js config.yaml
 ```
 
 The virtual cameras then show up for adoption in UniFi Protect as **"Onvif Cardinal"**. See [Adopting in UniFi Protect](docs/unifi-protect.md).
+
+Releases are listed in [CHANGELOG.md](CHANGELOG.md); each one also publishes a container image, `ghcr.io/mz738/onvif-server` (see [Docker Compose](docs/running.md#docker-compose)).
 
 To generate a config from a real Onvif camera or recorder instead:
 
@@ -65,6 +68,7 @@ node main.js --create-config
 | [Running](docs/running.md) | `--check`, systemd, Docker Compose, one address per camera, starting without internet |
 | [UniFi Protect](docs/unifi-protect.md) | Adoption, credentials, what Protect remembers, feature support by version |
 | [Troubleshooting](docs/troubleshooting.md) | Frozen pictures, rebooting cameras, Wi-Fi drop-outs, HTTP 500, Reolink notes |
+| [CHANGELOG](CHANGELOG.md) | What each release contains, how releases are cut |
 
 ## Development
 
