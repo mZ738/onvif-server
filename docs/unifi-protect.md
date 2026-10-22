@@ -49,6 +49,7 @@ From Protect 7.2 on, Protect manages recording/encoding settings and the clock o
 
 Since Protect 7.1.55, third-party cameras can deliver motion through Onvif events. With [`motion:`](configuration.md#motion-events) the virtual camera offers an event service and passes on motion it receives over MQTT, for example from Frigate running on the same stream.
 
-- Protect subscribes on its own when the camera is (re)connected; `onvif_server_event_subscriptions` shows whether it did.
+- **A camera adopted before `motion:` was configured has to be removed and adopted again.** Protect decides at adoption whether a third-party camera can report motion. Afterwards it still subscribes to the event service (`onvif_server_event_subscriptions` goes to 1, PullMessages arrive every few seconds) but ignores every notification, and its settings show no event section. Verified on Protect 7.2: no events before re-adoption, event settings and timeline events right after it. Audio was the exception - Protect picked that up on reconnect.
+- Protect subscribes on its own: per camera it creates a PullPoint subscription (`InitialTerminationTime PT60S`), pulls every 5 s (`Timeout PT2S`, `MessageLimit 10`), renews once and re-subscribes every 60 s after re-reading the profiles. A gauge that briefly reads 0 between Unsubscribe and the next CreatePullPointSubscription is normal.
 - These are plain motion events. Protect's smart detections (person, vehicle, ...) on third-party cameras need an AI Port - see [Feature support](#feature-support-by-protect-version).
-- Not verified against every Protect version: which of the two published topics Protect evaluates. Both are sent, as Hikvision-family cameras do; motion from those has been reported to work in Protect 7.1.
+- Not verified: which of the two published topics Protect evaluates. Both are sent, as Hikvision-family cameras do.
