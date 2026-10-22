@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { findImports, localPathFor } from '../scripts/vendor-schemas.js';
+import { findImports, localPathFor, makeWorldReadable } from '../scripts/vendor-schemas.js';
 import { resolveImport } from '../src/onvif-server.js';
 
 test('findImports resolves relative locations against the document URL', () => {
@@ -31,6 +31,20 @@ test('localPathFor mirrors host and path', () => {
         localPathFor('https://www.w3.org/2005/08/addressing/ws-addr.xsd', '/v'),
         path.join('/v', 'www.w3.org', '2005', '08', 'addressing', 'ws-addr.xsd'),
     );
+});
+
+test('makeWorldReadable opens a 0700 tree for other users', { skip: process.platform === 'win32' && 'no POSIX modes' }, async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vendor-'));   // mkdtemp creates 0700
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const nested = path.join(dir, 'www.onvif.org', 'ver10');
+    fs.mkdirSync(nested, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(nested, 'onvif.xsd'), '<xs:schema/>', { mode: 0o600 });
+
+    await makeWorldReadable(dir);
+
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o755);
+    assert.equal(fs.statSync(nested).mode & 0o777, 0o755);
+    assert.equal(fs.statSync(path.join(nested, 'onvif.xsd')).mode & 0o777, 0o644);
 });
 
 test('resolveImport prefers the vendored copy and falls back to the URL', (t) => {
