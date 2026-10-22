@@ -67,6 +67,54 @@ function checkAudio(errors, path, audio) {
         errors.push(`${path}.channels: expected 1 or 2, got ${JSON.stringify(audio.channels)}`);
 }
 
+const MQTT_PROTOCOLS = ['mqtt:', 'mqtts:', 'ws:', 'wss:'];
+
+function checkNonEmptyString(errors, path, value, { required = false } = {}) {
+    if (value === undefined && !required) return;
+    if (typeof value !== 'string' || value.trim() === '') errors.push(`${path}: expected a non-empty string`);
+}
+
+function checkMotion(errors, path, motion) {
+    if (motion === undefined) return;
+    if (!isPlainObject(motion)) {
+        errors.push(`${path}: expected a mapping with topic (and optionally payloadOn/payloadOff/resetAfter)`);
+        return;
+    }
+    if (typeof motion.topic !== 'string' || motion.topic.trim() === '')
+        errors.push(`${path}.topic: expected the MQTT topic that reports motion`);
+    else if (/[+#\0]/.test(motion.topic))
+        errors.push(`${path}.topic: wildcards (+, #) are not allowed, name one topic per camera`);
+    for (const key of ['payloadOn', 'payloadOff']) {
+        const value = motion[key];
+        const usable = (typeof value === 'string' || typeof value === 'number') && String(value).trim() !== '';
+        if (value !== undefined && !usable) errors.push(`${path}.${key}: expected a non-empty string (quote values like "true")`);
+    }
+    if (motion.payloadOn !== undefined && String(motion.payloadOn).trim() === String(motion.payloadOff ?? 'OFF').trim())
+        errors.push(`${path}: payloadOn and payloadOff must differ`);
+    checkPositiveInteger(errors, `${path}.resetAfter`, motion.resetAfter);
+}
+
+function checkMqtt(errors, mqtt) {
+    if (!isPlainObject(mqtt)) {
+        errors.push('mqtt: expected a mapping with url (and optionally username/clientId)');
+        return;
+    }
+    let url = null;
+    try {
+        url = new URL(mqtt.url);
+    } catch {
+        errors.push(`mqtt.url: expected a broker URL like "mqtt://192.0.2.10:1883", got ${JSON.stringify(mqtt.url)}`);
+    }
+    if (url && !MQTT_PROTOCOLS.includes(url.protocol))
+        errors.push(`mqtt.url: expected one of ${MQTT_PROTOCOLS.map((p) => `${p}//`).join(', ')}, got ${url.protocol}//`);
+    if (url && (url.username || url.password))
+        errors.push('mqtt.url: no credentials in the URL - set mqtt.username and the MQTT_PASSWORD environment variable');
+    if (mqtt.password !== undefined)
+        errors.push('mqtt.password: passwords do not belong in the config - set the MQTT_PASSWORD environment variable');
+    checkNonEmptyString(errors, 'mqtt.username', mqtt.username);
+    checkNonEmptyString(errors, 'mqtt.clientId', mqtt.clientId);
+}
+
 function checkCamera(errors, index, camera) {
     const path = `onvif[${index}]`;
 
@@ -114,6 +162,7 @@ function checkCamera(errors, index, camera) {
     checkQuality(errors, `${path}.highQuality`, camera.highQuality, { required: true });
     checkQuality(errors, `${path}.lowQuality`, camera.lowQuality, { required: false });
     checkAudio(errors, `${path}.audio`, camera.audio);
+    checkMotion(errors, `${path}.motion`, camera.motion);
 }
 
 /**
@@ -142,6 +191,10 @@ export function validateConfig(config) {
                 errors.push('metrics.host: expected an address to listen on, e.g. "0.0.0.0"');
         }
     }
+
+    if (config.mqtt !== undefined) checkMqtt(errors, config.mqtt);
+    if (config.mqtt === undefined && config.onvif.some((camera) => isPlainObject(camera) && camera.motion !== undefined))
+        errors.push('mqtt: missing - motion: needs an MQTT broker to read from');
 
     // Two virtual cameras on the same host:port would silently fight over the socket.
     const seen = new Map();

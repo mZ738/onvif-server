@@ -84,3 +84,46 @@ test('allows distinct cameras on distinct ports', () => {
     });
     assert.deepEqual(validateConfig(validConfig([a, b])), []);
 });
+
+test('accepts motion from MQTT', () => {
+    const config = validConfig([validCamera({ motion: { topic: 'frigate/front/motion', payloadOn: 'on', payloadOff: 'off', resetAfter: 60 } })]);
+    config.mqtt = { url: 'mqtts://broker.example:8883', username: 'onvif', clientId: 'onvif-1' };
+    assert.deepEqual(validateConfig(config), []);
+});
+
+test('motion needs a broker', () => {
+    const problems = validateConfig(validConfig([validCamera({ motion: { topic: 'cam/motion' } })]));
+    assert.ok(problems.some((problem) => problem.startsWith('mqtt: missing')));
+});
+
+test('rejects bad motion settings', () => {
+    const config = validConfig([
+        validCamera({ motion: { topic: 'cams/+/motion', payloadOn: true, resetAfter: -1 } }),
+        validCamera({ uuid: 'other', mac: 'ab:cd:ef:01:02:04', motion: { topic: 'x', payloadOn: 'OFF' } }),
+    ]);
+    config.mqtt = { url: 'mqtt://192.0.2.10' };
+    const problems = validateConfig(config);
+
+    assert.ok(problems.some((problem) => problem.includes('onvif[0].motion.topic: wildcards')));
+    assert.ok(problems.some((problem) => problem.includes('onvif[0].motion.payloadOn')));
+    assert.ok(problems.some((problem) => problem.includes('onvif[0].motion.resetAfter')));
+    assert.ok(problems.some((problem) => problem.includes('onvif[1].motion: payloadOn and payloadOff must differ')));
+});
+
+test('keeps MQTT credentials out of the config', () => {
+    const inUrl = validConfig();
+    inUrl.mqtt = { url: 'mqtt://user:pw@192.0.2.10' };
+    assert.ok(validateConfig(inUrl).some((problem) => problem.includes('no credentials in the URL')));
+
+    const asKey = validConfig();
+    asKey.mqtt = { url: 'mqtt://192.0.2.10', password: 'pw' };
+    assert.ok(validateConfig(asKey).some((problem) => problem.includes('MQTT_PASSWORD')));
+});
+
+test('rejects an unusable broker URL', () => {
+    for (const url of ['http://192.0.2.10', 'broker:1883', undefined]) {
+        const config = validConfig();
+        config.mqtt = { url };
+        assert.ok(validateConfig(config).some((problem) => problem.startsWith('mqtt.url')), String(url));
+    }
+});

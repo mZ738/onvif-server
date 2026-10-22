@@ -2,14 +2,16 @@
 
 [← README](../README.md)
 
-## All cameras show the same picture
+## All cameras show the same picture, or a removed camera is never offered again
 
-Protect tells cameras apart by MAC address. If your host answers ARP for all macvlan addresses with one MAC, set ([background](https://serverfault.com/questions/682311/virtual-interfaces-with-different-mac-addresses)):
+Protect tells cameras apart by MAC address. A Linux host answers ARP for *any* of its addresses on *any* interface by default, so with several virtual cameras on one host (macvlan or one veth per camera, same bridge) every camera IP may resolve to the same MAC. Protect then treats them as one device: pictures get mixed up, and a camera you remove is not offered for adoption again because its MAC still belongs to the remaining one. Check from a neighbour, not on the host: `ip neigh` on another machine in the subnet must show a different MAC per camera IP. Fix ([background](https://serverfault.com/questions/682311/virtual-interfaces-with-different-mac-addresses)):
 
 ```bash
 sudo sysctl -w net.ipv4.conf.all.arp_ignore=1
 sudo sysctl -w net.ipv4.conf.all.arp_announce=2
 ```
+
+Protect keeps using a cached MAC as long as traffic over it works, so after the change its sessions have to fail once before it asks again: restart this server, or drop packets that arrive on the wrong interface (`nft add rule inet filter input iifname != "eth1" ip daddr <camera ip> drop`, one rule per camera, plus `iifname "lo" accept` first).
 
 ## Only snapshots, no live video
 
@@ -39,6 +41,15 @@ If the camera itself stalls (Wi-Fi), go2rtc reconnects on its own in roughly 20-
 ## Audio is missing
 
 Add [`audio:`](configuration.md#audio) to the camera and restart. Without it the stream's audio is delivered but not advertised.
+
+## No motion events
+
+Work through the chain with the [metrics](configuration.md#metrics) or `--debug`:
+
+1. `onvif_server_mqtt_connected` is 0: broker address, login (`MQTT_PASSWORD` set for the process?) or firewall. The log says why.
+2. `onvif_server_motion_active` never changes: the topic or the payloads do not match. `mosquitto_sub -v -t 'frigate/#'` shows what is actually published; with `--debug` the server logs payloads it ignores.
+3. `onvif_server_event_subscriptions` stays 0: the NVR does not subscribe. UniFi Protect needs 7.1.55 or later and may take a few minutes after a restart of this server before it subscribes. A gauge that is 0 for a moment every minute is normal - Protect unsubscribes and re-subscribes every 60 s.
+4. Motion is reported and pulled (`PullMessages` counts up), but Protect shows no events and no event settings for the camera: the camera was adopted before `motion:` existed. Protect fixes a third-party camera's capabilities at adoption - remove the camera in Protect and adopt it again (see [Motion events](unifi-protect.md#motion-events)). If the removed camera is not offered again, see [the MAC entry above](#all-cameras-show-the-same-picture-or-a-removed-camera-is-never-offered-again).
 
 ## Every request returns HTTP 500, or the server does not start
 

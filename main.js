@@ -14,6 +14,7 @@ import { planForwards } from './src/forwards.js';
 import { Metrics, startMetricsServer } from './src/metrics.js';
 import { checkConfig } from './src/check.js';
 import { createLogger } from './src/logger.js';
+import { MqttMotionInput } from './src/mqtt-motion.js';
 
 const USAGE = `Virtual Onvif Server
 
@@ -115,6 +116,7 @@ async function runServers(config, { debug, logger }) {
     const servers = [];
     const proxies = [];
     const cameras = [];
+    const motionSources = [];
 
     const metrics = config.metrics ? new Metrics() : null;
     metrics?.set('onvif_server_build_info', 'Constant 1, labelled with the running version.', { version: await readVersion() }, 1);
@@ -143,6 +145,7 @@ async function runServers(config, { debug, logger }) {
         if (debug) server.enableDebugOutput();
         servers.push(server);
         cameras.push({ host: server.getHostname(), camera: cameraConfig });
+        if (cameraConfig.motion) motionSources.push({ motion: cameraConfig.motion, server });
     }
 
     let forwards;
@@ -168,6 +171,24 @@ async function runServers(config, { debug, logger }) {
         }
 
         proxies.push(proxy);
+    }
+
+    // Started after the Onvif servers, so every motion change has somewhere to go.
+    // Not fatal when the broker is down: streaming works without it and the
+    // client keeps reconnecting.
+    if (motionSources.length > 0) {
+        const input = new MqttMotionInput({
+            url: config.mqtt.url,
+            username: config.mqtt.username,
+            // Compose passes an unset variable as an empty string.
+            password: process.env.MQTT_PASSWORD || undefined,
+            clientId: config.mqtt.clientId,
+            logger: logger.child({ component: 'mqtt' }),
+            metrics,
+        });
+        for (const { motion, server } of motionSources) input.watch(motion, (active) => server.setMotion(active));
+        input.start();
+        servers.push({ close: () => input.close() });
     }
 
     if (metrics) {

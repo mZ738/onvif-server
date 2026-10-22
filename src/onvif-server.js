@@ -7,6 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 
+import { EventService, EVENTS_PATH } from './event-service.js';
+
 const ROOT = path.join(import.meta.dirname, '..');
 const WSDL_DIR = path.join(ROOT, 'wsdl');
 const SNAPSHOT_FILE = path.join(ROOT, 'resources', 'snapshot.png');
@@ -79,6 +81,56 @@ function noConfigFault(text) {
     };
 }
 
+/**
+ * A fault with a nested Onvif subcode, e.g. ter:InvalidArgVal / ter:ConfigModify.
+ * node-soap answers thrown faults with HTTP 200 unless told otherwise; the SOAP
+ * 1.2 HTTP binding wants 400 for sender and 500 for receiver faults.
+ */
+function onvifFault(code, subcode, detail, text) {
+    return {
+        Fault: {
+            Code: { Value: code, Subcode: { Value: subcode, Subcode: { Value: detail } } },
+            Reason: { Text: text },
+            statusCode: code === 'soap:Sender' ? 400 : 500,
+        },
+    };
+}
+
+// A client may set the clock "manually"; accepted as long as it agrees with
+// the host clock this server reports, which it cannot and should not change.
+const CLOCK_TOLERANCE_MS = 5_000;
+
+/** node-soap hands over a single element as an object, several as an array. */
+function asArray(value) {
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * Fields of a requested tt:VideoEncoderConfiguration that differ from the
+ * delivered one. Fields the request leaves out count as unchanged; names,
+ * use counts, multicast and session timeout are not stream properties.
+ */
+export function encoderDifferences(requested, current) {
+    const differences = [];
+    const compare = (label, wanted, actual, numeric = true) => {
+        if (wanted === undefined || wanted === null) return;
+        const same = numeric ? Number(wanted) === Number(actual) : String(wanted) === String(actual);
+        if (!same) differences.push(`${label} ${wanted} (delivered: ${actual})`);
+    };
+
+    compare('encoding', requested?.Encoding, current.Encoding, false);
+    compare('width', requested?.Resolution?.Width, current.Resolution.Width);
+    compare('height', requested?.Resolution?.Height, current.Resolution.Height);
+    compare('quality', requested?.Quality, current.Quality);
+    compare('frame rate', requested?.RateControl?.FrameRateLimit, current.RateControl.FrameRateLimit);
+    compare('encoding interval', requested?.RateControl?.EncodingInterval, current.RateControl.EncodingInterval);
+    compare('bitrate', requested?.RateControl?.BitrateLimit, current.RateControl.BitrateLimit);
+    compare('GOP length', requested?.H264?.GovLength, current.H264.GovLength);
+    compare('H.264 profile', requested?.H264?.H264Profile, current.H264.H264Profile, false);
+    return differences;
+}
+
 class OnvifServer {
     #config;
     #logger;
@@ -89,6 +141,9 @@ class OnvifServer {
     #discoveryMessageNo = 0;
     #snapshot;
     #metrics;
+    #ntp = { FromDHCP: false, NTPManual: [] };
+    #events = null;
+    #lastWarning = new Map();
 
     constructor(config, logger, { metrics = null } = {}) {
         this.#config = config;
@@ -194,12 +249,40 @@ class OnvifServer {
         return profile;
     }
 
+    #profile(token) {
+        const profile = this.profiles.find((candidate) => candidate.attributes.token === token);
+        if (!profile) throw onvifFault('soap:Sender', 'ter:InvalidArgVal', 'ter:NoProfile', `No profile ${token}`);
+        return profile;
+    }
+
+    #videoEncoder(token) {
+        const profile = this.profiles.find((candidate) => candidate.VideoEncoderConfiguration.attributes.token === token);
+        if (!profile) throw onvifFault('soap:Sender', 'ter:InvalidArgVal', 'ter:NoConfig', `No video encoder configuration ${token}`);
+        return profile.VideoEncoderConfiguration;
+    }
+
+    /** Logs a message when it differs from the last one under the same key, so a retrying client does not flood the log. */
+    #warnOnce(key, message, level = 'warn') {
+        if (this.#lastWarning.get(key) === message) return;
+        this.#lastWarning.set(key, message);
+        this.#logger[level](message);
+    }
+
     #deviceServiceUri() {
         return `http://${this.#config.hostname}:${this.#config.ports.server}/onvif/device_service`;
     }
 
     #mediaServiceUri() {
         return `http://${this.#config.hostname}:${this.#config.ports.server}/onvif/media_service`;
+    }
+
+    #eventServiceUri() {
+        return `http://${this.#config.hostname}:${this.#config.ports.server}${EVENTS_PATH}`;
+    }
+
+    /** Events are offered only when a motion source is configured. */
+    get hasEvents() {
+        return Boolean(this.#config.motion);
     }
 
     #buildServices() {
@@ -284,6 +367,16 @@ class OnvifServer {
                             };
                         }
 
+                        // tt:Capabilities is a sequence: Device, Events, ..., Media.
+                        if (this.hasEvents && (category === undefined || category === 'All' || category === 'Events')) {
+                            response.Capabilities.Events = {
+                                XAddr: this.#eventServiceUri(),
+                                WSSubscriptionPolicySupport: false,
+                                WSPullPointSupport: true,
+                                WSPausableSubscriptionManagerInterfaceSupport: false,
+                            };
+                        }
+
                         if (category === undefined || category === 'All' || category === 'Media') {
                             response.Capabilities.Media = {
                                 XAddr: this.#mediaServiceUri(),
@@ -321,6 +414,11 @@ class OnvifServer {
                                 XAddr: this.#mediaServiceUri(),
                                 Version: { Major: 2, Minor: 5 },
                             },
+                            ...(this.hasEvents ? [{
+                                Namespace: 'http://www.onvif.org/ver10/events/wsdl',
+                                XAddr: this.#eventServiceUri(),
+                                Version: { Major: 2, Minor: 5 },
+                            }] : []),
                         ],
                     }),
 
@@ -331,6 +429,42 @@ class OnvifServer {
                         SerialNumber: `${slug(config.name)}-0000`,
                         HardwareId: `${slug(config.name)}-1001`,
                     }),
+
+                    // The reported time is the host clock (GetSystemDateAndTime).
+                    // NTP is accepted, a manual time only if it agrees with it.
+                    SetSystemDateAndTime: (args) => {
+                        if (args?.DateTimeType !== 'Manual') return {};
+
+                        const utc = args.UTCDateTime;
+                        const requested = Date.UTC(
+                            Number(utc?.Date?.Year), Number(utc?.Date?.Month) - 1, Number(utc?.Date?.Day),
+                            Number(utc?.Time?.Hour), Number(utc?.Time?.Minute), Number(utc?.Time?.Second),
+                        );
+                        if (Number.isNaN(requested))
+                            throw onvifFault('soap:Sender', 'ter:InvalidArgVal', 'ter:InvalidDateTime', 'UTCDateTime missing or invalid');
+
+                        const offsetSeconds = Math.round((requested - Date.now()) / 1000);
+                        if (Math.abs(offsetSeconds) * 1000 <= CLOCK_TOLERANCE_MS) return {};
+
+                        this.#warnOnce('clock', `client tried to set the clock ${offsetSeconds} s off the host clock - sync the host (NTP), this server does not change it`);
+                        throw onvifFault('soap:Receiver', 'ter:ActionNotSupported', 'ter:InvalidDateTime',
+                            `The virtual device uses the host clock, which is ${-offsetSeconds} s off the requested time`);
+                    },
+
+                    // Stored and reported back, so a client that manages time
+                    // servers sees its setting; the host clock is not changed.
+                    SetNTP: (args) => {
+                        const ntp = {
+                            FromDHCP: args?.FromDHCP === true || args?.FromDHCP === 'true',
+                            NTPManual: asArray(args?.NTPManual),
+                        };
+                        const servers = ntp.NTPManual.map((host) => host.DNSname ?? host.IPv4Address ?? host.IPv6Address).join(', ');
+                        this.#warnOnce('ntp', `client set NTP to ${ntp.FromDHCP ? 'DHCP' : servers || 'none'} - not applied, the host clock is used`, 'info');
+                        this.#ntp = ntp;
+                        return {};
+                    },
+
+                    GetNTP: () => ({ NTPInformation: this.#ntp }),
                 },
             },
 
@@ -339,6 +473,55 @@ class OnvifServer {
                     GetProfiles: () => ({ Profiles: this.profiles }),
 
                     GetVideoSources: () => ({ VideoSources: [this.videoSource] }),
+
+                    GetVideoEncoderConfigurations: () => ({
+                        Configurations: this.profiles.map((profile) => profile.VideoEncoderConfiguration),
+                    }),
+
+                    GetVideoEncoderConfiguration: (args) => ({
+                        Configuration: this.#videoEncoder(args?.ConfigurationToken),
+                    }),
+
+                    // The forwarded streams are fixed, so the options are exactly
+                    // what is being delivered.
+                    GetVideoEncoderConfigurationOptions: (args) => {
+                        let encoders;
+                        if (args?.ConfigurationToken) encoders = [this.#videoEncoder(args.ConfigurationToken)];
+                        else if (args?.ProfileToken) encoders = [this.#profile(args.ProfileToken).VideoEncoderConfiguration];
+                        else encoders = this.profiles.map((profile) => profile.VideoEncoderConfiguration);
+
+                        const span = (values) => ({ Min: Math.floor(Math.min(...values)), Max: Math.ceil(Math.max(...values)) });
+                        const h264 = {
+                            ResolutionsAvailable: encoders.map((encoder) => encoder.Resolution),
+                            GovLengthRange: span(encoders.map((encoder) => encoder.H264.GovLength)),
+                            FrameRateRange: span(encoders.map((encoder) => encoder.RateControl.FrameRateLimit)),
+                            EncodingIntervalRange: { Min: 1, Max: 1 },
+                            H264ProfilesSupported: ['Main'],
+                        };
+
+                        return {
+                            Options: {
+                                QualityRange: span(encoders.map((encoder) => encoder.Quality)),
+                                H264: h264,
+                                Extension: {
+                                    H264: { ...h264, BitrateRange: span(encoders.map((encoder) => encoder.RateControl.BitrateLimit)) },
+                                },
+                            },
+                        };
+                    },
+
+                    // Accepted when it asks for what is delivered anyway; anything
+                    // else would have to be changed on the real camera.
+                    SetVideoEncoderConfiguration: (args) => {
+                        const requested = args?.Configuration;
+                        const current = this.#videoEncoder(requested?.attributes?.token);
+                        const differences = encoderDifferences(requested, current);
+                        if (differences.length === 0) return {};
+
+                        const text = `${current.attributes.token}: cannot change ${differences.join(', ')} - the stream is forwarded unchanged, change it on the camera and in the config`;
+                        this.#warnOnce(`encoder:${current.attributes.token}`, `client tried to change the encoder, ${text}`);
+                        throw onvifFault('soap:Sender', 'ter:InvalidArgVal', 'ter:ConfigModify', text);
+                    },
 
                     GetAudioSources: () => ({ AudioSources: this.audio ? [this.audioSource] : [] }),
 
@@ -407,9 +590,18 @@ class OnvifServer {
         };
     }
 
-    /** Serves the placeholder snapshot. Bound as an arrow function so `this` survives. */
+    /** Serves events and the placeholder snapshot. Bound as an arrow function so `this` survives. */
     #listen = (request, response) => {
-        const { pathname } = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`);
+        const { pathname } = new URL(request.url, 'http://localhost');
+
+        if (this.#events?.handles(pathname)) {
+            this.#events.handle(request, response, pathname).catch((error) => {
+                this.#logger.error(`event request failed: ${error.message}`);
+                if (!response.headersSent) response.writeHead(500);
+                response.end();
+            });
+            return;
+        }
 
         if (pathname === '/snapshot.png') {
             this.#snapshot ??= fs.readFileSync(SNAPSHOT_FILE);
@@ -422,7 +614,22 @@ class OnvifServer {
         response.end('404 Not Found\n');
     };
 
+    /** Publishes a motion change to Onvif event subscribers (no-op without `motion:`). */
+    setMotion(active) {
+        this.#events?.setMotion(active);
+    }
+
     async startServer() {
+        if (this.hasEvents) {
+            this.#events = new EventService({
+                // The bound port, so subscription references are right even with ports.server: 0.
+                baseUrl: () => `http://${this.#config.hostname}:${this.#server?.address()?.port ?? this.#config.ports.server}`,
+                logger: this.#logger,
+                metrics: this.#metrics,
+                camera: this.#config.name,
+            });
+        }
+
         this.#server = http.createServer(this.#listen);
 
         // Without this, an EADDRINUSE anywhere kills the whole process.
@@ -611,6 +818,10 @@ class OnvifServer {
 
     async close() {
         const closers = [];
+
+        // Answers pending long polls first, otherwise server.close() waits for them.
+        this.#events?.close();
+        this.#events = null;
 
         // Null the handles as we go: dgram.close() on an already-closed socket
         // throws, so a second close() must be a no-op rather than a surprise.
