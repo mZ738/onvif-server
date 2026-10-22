@@ -10,7 +10,7 @@
 
 ## Feature support by Protect version
 
-What UniFi Protect offers third-party (Onvif) cameras, and what this server makes of it. Compiled from Ubiquiti's release notes and announcements as of October 2026; Ubiquiti's own help pages partly contradict each other, so treat the Protect column as a guide, not a guarantee.
+What UniFi Protect offers third-party (Onvif) cameras, and what this server makes of it. Compiled from Ubiquiti's release notes and announcements as of October 2026; Ubiquiti's own help pages partly contradict each other, so treat the Protect column as a guide, not a guarantee. A [weekly workflow](../.github/workflows/protect-watch.yml) reads Ubiquiti's release feed and opens an issue when a release mentions third-party cameras; the lines it has seen are in [`docs/watch/protect-releases.json`](watch/protect-releases.json).
 
 | Feature | Protect | This server |
 |---|---|---|

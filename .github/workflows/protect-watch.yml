@@ -1,0 +1,41 @@
+name: Protect release notes
+
+# Weekly: read Ubiquiti's UniFi Protect release feed, keep what it says about
+# third-party (Onvif) cameras, and open an issue when something new appears.
+# The snapshot in docs/watch/ is committed so the next run only reports changes.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - id: watch
+        run: node scripts/protect-release-watch.js --snapshot docs/watch/protect-releases.json --report "$RUNNER_TEMP/report.md"
+      - name: Commit snapshot
+        if: steps.watch.outputs.changed == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/watch/protect-releases.json
+          git commit -m "docs(watch): Protect release notes ${{ steps.watch.outputs.versions }}"
+          git push
+      - name: Open issue
+        if: steps.watch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Protect release notes mention third-party cameras: ${{ steps.watch.outputs.versions }}" \
+            --body-file "$RUNNER_TEMP/report.md"
