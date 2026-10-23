@@ -115,6 +115,7 @@ mqtt:
 ```
 
 - **Sources:** anything that publishes a fixed "on" and "off" payload on one topic. [Frigate](https://docs.frigate.video/integrations/mqtt/) publishes `frigate/<camera>/motion` with `ON`/`OFF` (defaults here). A Home Assistant binary sensor sent to MQTT usually uses `on`/`off` - set `payloadOn`/`payloadOff`. Payloads are compared exactly, after trimming whitespace; quote them in YAML.
+- **Everything on the topic is "motion".** The NVR learns one thing per camera: motion on or off. What triggered it - a motion detector, a person, a package, a crying baby - is not transmitted; Onvif has no field for it here, and UniFi Protect shows every such event as plain motion (its smart detections for third-party cameras need an AI Port). Several sources publishing to one topic therefore merge into one motion state: on while any of them says on. If you need to tell events apart, publish only the one that matters, or use one virtual camera per source.
 - **`resetAfter`** ends motion that many seconds after the last "on". Use it for sources that only report the start of motion, and as a safety net against a lost "off".
 - **Password:** set `MQTT_PASSWORD` in the environment (systemd `Environment=`/`EnvironmentFile=`, Compose `environment:`). A password in the config or in the URL is rejected.
 - **Broker down:** the server starts anyway and keeps reconnecting every 5 s. While disconnected, every camera reports "no motion", so a recording cannot hang on a stale "on".
