@@ -5,7 +5,7 @@
 ## Steps
 
 1. Enable discovery of third-party cameras in Protect.
-2. Adopt the "Onvif Cardinal" devices. **This server does not check credentials** - any username and password are accepted. Restrict access to its ports by network or firewall.
+2. Adopt the devices - offered as "Onvif Cardinal", or as the `manufacturer`/`model` you set per camera. **This server does not check credentials** - any username and password are accepted. Restrict access to its ports by network or firewall.
 3. Protect needs H.264, a high and a low profile, and a correct clock on the camera.
 
 ## Feature support by Protect version

@@ -2,6 +2,12 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). Releases are cut with `npm version <major|minor|patch>` and `git push --follow-tags`; the [Release workflow](.github/workflows/release.yml) then runs the tests, publishes the image to `ghcr.io/mz738/onvif-server` and creates the GitHub release.
 
+## [Unreleased]
+
+### Added
+
+- `manufacturer` and `model` per camera: what `GetDeviceInformation` and the discovery scopes report, so an NVR offers the camera under a name of your choosing instead of "Onvif Cardinal". Defaults unchanged.
+
 ## [2.1.1] - 2026-10-22
 
 ### Fixed

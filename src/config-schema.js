@@ -129,6 +129,11 @@ function checkCamera(errors, index, camera) {
     if (typeof camera.uuid !== 'string' || camera.uuid.trim() === '')
         errors.push(`${path}.uuid: expected a uuid string`);
 
+    for (const key of ['manufacturer', 'model']) {
+        if (camera[key] !== undefined && (typeof camera[key] !== 'string' || camera[key].trim() === ''))
+            errors.push(`${path}.${key}: expected a non-empty string (or leave it out)`);
+    }
+
     // Either an explicit hostname or a MAC we can resolve to a local interface.
     if (camera.hostname === undefined) {
         if (typeof camera.mac !== 'string' || !MAC_RE.test(camera.mac))

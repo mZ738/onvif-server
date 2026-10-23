@@ -423,8 +423,8 @@ class OnvifServer {
                     }),
 
                     GetDeviceInformation: () => ({
-                        Manufacturer: 'Onvif',
-                        Model: 'Cardinal',
+                        Manufacturer: this.manufacturer,
+                        Model: this.model,
                         FirmwareVersion: '1.0.0',
                         SerialNumber: `${slug(config.name)}-0000`,
                         HardwareId: `${slug(config.name)}-1001`,
@@ -710,19 +710,29 @@ class OnvifServer {
         });
     }
 
+    /** What GetDeviceInformation and the discovery scopes call this device. NVRs show it when offering the camera. */
+    get manufacturer() {
+        return this.#config.manufacturer ?? 'Onvif';
+    }
+
+    get model() {
+        return this.#config.model ?? 'Cardinal';
+    }
+
     /**
      * Scopes announced in WS-Discovery. Only capabilities the virtual device
      * actually has: no PTZ scope (there is no PTZ service), an audio scope only
-     * when audio is advertised. hardware/name stay as before so already adopted
-     * devices keep matching.
+     * when audio is advertised. hardware/name follow `manufacturer`/`model`
+     * and default to the old fixed values, so already adopted devices keep
+     * matching.
      */
     discoveryScopes() {
         return [
             'onvif://www.onvif.org/Profile/Streaming',
             'onvif://www.onvif.org/type/video_encoder',
             ...(this.audio ? ['onvif://www.onvif.org/type/audio_encoder'] : []),
-            'onvif://www.onvif.org/hardware/Onvif',
-            'onvif://www.onvif.org/name/Cardinal',
+            `onvif://www.onvif.org/hardware/${encodeURIComponent(this.manufacturer)}`,
+            `onvif://www.onvif.org/name/${encodeURIComponent(this.model)}`,
             'onvif://www.onvif.org/location/',
         ];
     }

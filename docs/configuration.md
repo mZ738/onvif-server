@@ -48,6 +48,7 @@ metrics:                                           # optional, see Metrics
 |---|---|---|
 | `name` | yes | Display name; spaces are fine |
 | `uuid` | yes | Identifies the device in discovery. Keep it stable - a new UUID looks like a new camera |
+| `manufacturer`, `model` | no | What `GetDeviceInformation` and the discovery scopes (`hardware/`, `name/`) report; NVRs show them when offering the camera. Defaults `Onvif` / `Cardinal`. Changing them on an adopted camera has no effect until it is adopted again |
 | `hostname` or `mac` | one of them | Address to listen on. `mac` looks up the local interface with that MAC instead |
 | `ports.server`, `ports.rtsp` | yes | Each virtual camera needs its own address; ports may repeat across addresses |
 | `ports.snapshot` | no | Without it the NVR gets a placeholder image |
