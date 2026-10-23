@@ -1,6 +1,6 @@
 {
   "name": "onvif-server",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Virtual Onvif Server - add support for multichannel Onvif cameras to UniFi Protect",
   "type": "module",
   "main": "main.js",

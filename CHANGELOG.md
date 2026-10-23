@@ -40,5 +40,6 @@ First release of this fork. Everything below is on top of davidcoulson/onvif-ser
 - TCP keepalive on forwarded connections; the WS-Discovery `InstanceId` grows with every start; one discovery socket instead of one per probe.
 - `follow-redirects` updated (GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c).
 
+[2.1.2]: https://github.com/mZ738/onvif-server/releases/tag/v2.1.2
 [2.1.1]: https://github.com/mZ738/onvif-server/releases/tag/v2.1.1
 [2.1.0]: https://github.com/mZ738/onvif-server/releases/tag/v2.1.0

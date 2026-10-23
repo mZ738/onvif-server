@@ -41,7 +41,7 @@ Requirements: **Node.js 24+**, one free IP address per virtual camera on the NVR
 ```bash
 git clone https://github.com/mZ738/onvif-server.git
 cd onvif-server
-git checkout v2.1.1             # a release tag; main is the development branch
+git checkout v2.1.2             # a release tag; main is the development branch
 npm ci --omit=dev
 npm run vendor-schemas          # store the Onvif schemas locally (needs internet once)
 
