@@ -37,6 +37,21 @@ test('discovery does not announce PTZ, and announces audio only when configured'
     assert.ok(withAudio.includes('onvif://www.onvif.org/type/audio_encoder'));
 });
 
+test('manufacturer and model are configurable and reach device information and discovery', () => {
+    const custom = createServer(localCamera({ manufacturer: 'Reolink', model: 'Baby Cam 1' }), logger);
+    const info = custom.onvif.DeviceService.Device.GetDeviceInformation();
+    assert.equal(info.Manufacturer, 'Reolink');
+    assert.equal(info.Model, 'Baby Cam 1');
+    const scopes = custom.discoveryScopes();
+    assert.ok(scopes.includes('onvif://www.onvif.org/hardware/Reolink'));
+    assert.ok(scopes.includes('onvif://www.onvif.org/name/Baby%20Cam%201'));
+    assert.ok(!scopes.includes('onvif://www.onvif.org/name/Cardinal'));
+
+    const defaults = createServer(localCamera(), logger).onvif.DeviceService.Device.GetDeviceInformation();
+    assert.equal(defaults.Manufacturer, 'Onvif');
+    assert.equal(defaults.Model, 'Cardinal');
+});
+
 test('no relay outputs are claimed', () => {
     const { Capabilities } = createServer(localCamera(), logger).onvif.DeviceService.Device.GetCapabilities({});
     assert.equal(Capabilities.Device.IO.RelayOutputs, 0);

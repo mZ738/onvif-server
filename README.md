@@ -50,7 +50,7 @@ node main.js --check config.yaml                 # dry run
 node main.js config.yaml
 ```
 
-The virtual cameras then show up for adoption in UniFi Protect as **"Onvif Cardinal"**. See [Adopting in UniFi Protect](docs/unifi-protect.md).
+The virtual cameras then show up for adoption in UniFi Protect as **"Onvif Cardinal"**, or as whatever `manufacturer`/`model` you set per camera. See [Adopting in UniFi Protect](docs/unifi-protect.md).
 
 Releases are listed in [CHANGELOG.md](CHANGELOG.md); each one also publishes a container image, `ghcr.io/mz738/onvif-server` (see [Docker Compose](docs/running.md#docker-compose)).
 
