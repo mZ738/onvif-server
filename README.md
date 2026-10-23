@@ -1,5 +1,7 @@
 # Virtual Onvif Server
 
+> **Moved.** This repository is archived. Development continues in its own repository, [mZ738/rtsp2unifi-protect](https://github.com/mZ738/rtsp2unifi-protect), starting with release 2.2.0 and the image `ghcr.io/mz738/rtsp2unifi-protect`. Releases up to 2.1.2 and their images stay available here. Existing installations only need a new remote URL: `git remote set-url origin https://github.com/mZ738/rtsp2unifi-protect.git`.
+
 [![CI](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml/badge.svg)](https://github.com/mZ738/onvif-server/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/mZ738/onvif-server?sort=semver)](https://github.com/mZ738/onvif-server/releases)
 
 Turns an RTSP stream into a virtual Onvif camera, so NVRs that only accept Onvif devices - UniFi Protect in particular - can record and show it. It also splits multi-channel recorders (Dahua/Hikvision XVRs, multi-lens cameras) into one virtual camera per channel.
