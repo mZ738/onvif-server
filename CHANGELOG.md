@@ -2,7 +2,7 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). Releases are cut with `npm version <major|minor|patch>` and `git push --follow-tags`; the [Release workflow](.github/workflows/release.yml) then runs the tests, publishes the image to `ghcr.io/mz738/onvif-server` and creates the GitHub release.
 
-## [Unreleased]
+## [2.1.2] - 2026-10-23
 
 ### Added
 
